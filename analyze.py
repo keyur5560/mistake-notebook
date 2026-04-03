@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from io import BytesIO
 from PIL import Image
 from groq import Groq
@@ -24,22 +25,24 @@ def extract_text_ocr(image_bytes: bytes) -> str:
         return ""
 
 
-SYSTEM_PROMPT = f"""You are a USMLE Step 1 study assistant. A student will give you OCR-extracted text from a screenshot of a medical question they got wrong (likely from UWorld or a similar qbank). The OCR may have errors — use your medical knowledge to interpret and correct it.
+SYSTEM_PROMPT = f"""You are a USMLE Step 1 study assistant. A student will give you:
+1. OCR-extracted text from a screenshot of a medical question they got wrong (likely UWorld)
+2. What answer they picked (wrong) and why they think they got it wrong
 
-Analyze the text and return a JSON object with these fields:
+Use all of this to provide a thorough analysis. The OCR may have errors — use your medical knowledge to interpret and correct it.
+
+Return a JSON object with these fields:
 
 {{
   "subject": "One of: {', '.join(USMLE_SUBJECTS)}",
   "organ_system": "One of: {', '.join(ORGAN_SYSTEMS)}",
-  "mistake_type": "Your best guess of why the student likely got this wrong. One of: {', '.join(MISTAKE_TYPES)}",
   "question_stem": "The core clinical vignette / question stem, cleaned up from OCR artifacts and formatted clearly",
-  "wrong_answer": "If visible in the text, the answer the student selected (marked wrong). Include the letter and text.",
-  "correct_answer": "If visible, the correct answer. Include the letter, text, AND a clear explanation of why it's correct.",
-  "why_i_got_it_wrong": "A thoughtful analysis of why a student might get this wrong — common reasoning traps, what's misleading, similar-sounding concepts that cause confusion",
+  "correct_answer": "The correct answer with a clear explanation of WHY it's correct. Include relevant pathophysiology.",
+  "why_i_got_it_wrong": "Based on what the student told you about their reasoning, give a targeted analysis of their specific mistake — what concept they confused, what they should have noticed, and how to avoid this trap next time",
   "key_learning_point": "The single most important concept to remember. Be specific and high-yield. Include the relevant pathophysiology, mechanism, or rule.",
   "mnemonic_or_tip": "A helpful mnemonic, memory trick, or study tip related to this concept. If there's a well-known one, use it. Otherwise create a useful one.",
   "topics_to_review": [
-    "List of 3-5 specific, actionable topics the student should review. Be specific — not just 'pharmacology' but 'Beta-blocker selectivity and clinical indications'"
+    "List of 3-5 specific, actionable topics the student should review based on their specific mistake. Be specific — not just 'pharmacology' but 'Beta-blocker selectivity and clinical indications'"
   ],
   "high_yield_facts": [
     "List of 2-4 related high-yield facts that commonly appear on Step 1 alongside this topic"
@@ -48,17 +51,37 @@ Analyze the text and return a JSON object with these fields:
 
 Important:
 - Clean up any OCR artifacts in the text (broken words, misread characters)
-- If you can't determine a field, make your best educated guess based on context
-- For mistake_type, consider the difficulty and nature of the question
+- Focus your analysis on the student's SPECIFIC mistake — don't be generic
+- The topics_to_review should target their weakness, not just the general topic
 - Be specific and clinically relevant — write as if teaching a student
 - Return ONLY valid JSON, no markdown or other formatting"""
 
 
-def analyze_with_groq(extracted_text: str) -> dict | None:
-    """Send OCR text to Groq for AI analysis and field auto-fill."""
+def analyze_with_groq(
+    extracted_text: str,
+    wrong_answer: str = "",
+    why_wrong: str = "",
+    mistake_type: str = "",
+) -> dict | None:
+    """Send OCR text + student's input to Groq for targeted analysis."""
     api_key = os.environ.get("GROQ_API_KEY", "")
     if not api_key or not extracted_text or len(extracted_text.strip()) < 10:
         return None
+
+    # Build user message with their input
+    parts = [
+        "Here is the OCR-extracted text from my UWorld screenshot:",
+        f"\n---\n{extracted_text}\n---\n",
+    ]
+    if wrong_answer:
+        parts.append(f"**What I picked (wrong):** {wrong_answer}")
+    if why_wrong:
+        parts.append(f"**Why I think I got it wrong:** {why_wrong}")
+    if mistake_type:
+        parts.append(f"**Type of mistake:** {mistake_type}")
+
+    parts.append("\nPlease analyze this and fill out all the study fields.")
+    user_message = "\n".join(parts)
 
     try:
         client = Groq(api_key=api_key)
@@ -66,10 +89,7 @@ def analyze_with_groq(extracted_text: str) -> dict | None:
             model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": f"Here is the OCR-extracted text from my UWorld screenshot. Please analyze it and fill out all the study fields:\n\n---\n{extracted_text}\n---",
-                },
+                {"role": "user", "content": user_message},
             ],
             temperature=0.3,
         )
@@ -78,8 +98,6 @@ def analyze_with_groq(extracted_text: str) -> dict | None:
         if not content:
             return None
 
-        # Extract JSON from response
-        import re
         json_match = re.search(r"\{[\s\S]*\}", content)
         if json_match:
             return json.loads(json_match.group())

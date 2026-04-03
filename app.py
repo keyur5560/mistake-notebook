@@ -222,30 +222,31 @@ def render_form(existing=None):
         go("dashboard")
         st.rerun()
 
+    # Initialize session state for analysis results
+    if "analysis_result" not in st.session_state:
+        st.session_state.analysis_result = None
+
     # Image upload
     uploaded = st.file_uploader("Upload Screenshot", type=["png", "jpg", "jpeg", "webp"])
 
     if existing and existing.get("image_url") and not uploaded:
         st.image(existing["image_url"], caption="Current screenshot", width=400)
 
-    # OCR + Groq analysis
+    # OCR only (no auto-analysis yet)
     ocr_text = existing.get("extracted_text", "") if existing else ""
-    analysis = None
 
     if uploaded:
         st.image(uploaded, caption="Uploaded screenshot", width=400)
-        with st.spinner("Extracting text (OCR)..."):
-            ocr_text = extract_text_ocr(uploaded.getvalue())
+        if "last_ocr_file" not in st.session_state or st.session_state.last_ocr_file != uploaded.name:
+            with st.spinner("Extracting text (OCR)..."):
+                ocr_text = extract_text_ocr(uploaded.getvalue())
+                st.session_state.ocr_text = ocr_text
+                st.session_state.last_ocr_file = uploaded.name
+                st.session_state.analysis_result = None  # reset on new image
+        else:
+            ocr_text = st.session_state.get("ocr_text", "")
 
-        if ocr_text and len(ocr_text.strip()) >= 10:
-            with st.spinner("Analyzing with Groq — auto-filling all fields..."):
-                analysis = analyze_with_groq(ocr_text)
-            if analysis:
-                st.success("AI analysis complete — fields auto-filled below. Review and edit as needed.")
-            else:
-                st.warning("AI analysis failed. Fill in the fields manually.")
-        elif ocr_text:
-            st.info("Not enough text extracted for AI analysis. Fill in fields manually.")
+    analysis = st.session_state.analysis_result
 
     # Merge analysis defaults with existing values
     def default(field, fallback=""):
@@ -271,34 +272,70 @@ def render_form(existing=None):
         help="Raw text extracted from screenshot. You can edit to fix OCR errors.",
     )
 
-    # Re-analyze button
-    if not uploaded and extracted_text and len(extracted_text.strip()) >= 10:
-        if st.button("Re-analyze with Groq"):
-            with st.spinner("Analyzing..."):
-                analysis = analyze_with_groq(extracted_text)
-            if analysis:
-                st.success("Re-analysis complete!")
+    # --- Step 1: User inputs FIRST ---
+    st.markdown("### Step 1: Tell me about your mistake")
+    st.caption("Fill these in first, then click Analyze to auto-fill the rest.")
+
+    wrong_answer = st.text_area(
+        "What I Picked (Wrong Answer)",
+        value=default("wrong_answer"),
+        height=100,
+        placeholder="Which option did you pick? e.g. 'B. Metoprolol — I thought it was a cardioselective beta-blocker issue'",
+    )
+
+    why_wrong = st.text_area(
+        "Why I Got It Wrong",
+        value=default("why_i_got_it_wrong"),
+        height=100,
+        placeholder="What tripped you up? e.g. 'I confused the mechanism of action with propranolol'",
+    )
+
+    mistake_type = st.selectbox(
+        "Type of Mistake",
+        MISTAKE_TYPES,
+        index=default_select("mistake_type", MISTAKE_TYPES),
+    )
+
+    # --- Step 2: Analyze button ---
+    st.markdown("### Step 2: AI Analysis")
+
+    can_analyze = extracted_text and len(extracted_text.strip()) >= 10
+    analyze_clicked = st.button(
+        "Analyze with Groq",
+        type="primary",
+        use_container_width=True,
+        disabled=not can_analyze,
+        help="Extracts the question, correct answer, key learning points, and study suggestions" if can_analyze else "Upload an image first",
+    )
+
+    if analyze_clicked and can_analyze:
+        with st.spinner("Analyzing with Groq — auto-filling remaining fields..."):
+            result = analyze_with_groq(
+                extracted_text,
+                wrong_answer=wrong_answer,
+                why_wrong=why_wrong,
+                mistake_type=mistake_type,
+            )
+            if result:
+                st.session_state.analysis_result = result
+                st.success("Analysis complete! Fields auto-filled below.")
                 st.rerun()
+            else:
+                st.warning("Analysis failed. Fill in the fields manually.")
+
+    # --- Step 3: Auto-filled fields (editable) ---
+    if analysis:
+        st.markdown("### Auto-filled by AI (review & edit)")
 
     # Classification
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     with col1:
         subject = st.selectbox("Subject", USMLE_SUBJECTS, index=default_select("subject", USMLE_SUBJECTS))
     with col2:
         organ_system = st.selectbox("Organ System", ORGAN_SYSTEMS, index=default_select("organ_system", ORGAN_SYSTEMS))
-    with col3:
-        mistake_type = st.selectbox("Why I Got It Wrong", MISTAKE_TYPES, index=default_select("mistake_type", MISTAKE_TYPES))
 
-    # Question details
     question_stem = st.text_area("Question Stem / Key Info", value=default("question_stem"), height=100)
-
-    col_a, col_b = st.columns(2)
-    with col_a:
-        wrong_answer = st.text_area("What I Picked (Wrong)", value=default("wrong_answer"), height=100)
-    with col_b:
-        correct_answer = st.text_area("Correct Answer", value=default("correct_answer"), height=100)
-
-    why_wrong = st.text_area("Why I Got It Wrong (Deep Dive)", value=default("why_i_got_it_wrong"), height=100)
+    correct_answer = st.text_area("Correct Answer", value=default("correct_answer"), height=100)
     key_point = st.text_area("Key Learning Point", value=default("key_learning_point"), height=100)
     mnemonic = st.text_area("Mnemonic / Memory Tip", value=default("mnemonic_or_tip"), height=80)
 
@@ -321,7 +358,6 @@ def render_form(existing=None):
 
     # Save
     if st.button("Update Entry" if is_edit else "Save Entry", type="primary", use_container_width=True):
-        # Upload image if new
         image_url = existing.get("image_url", "") if existing else ""
         if uploaded:
             with st.spinner("Uploading image..."):
@@ -352,6 +388,11 @@ def render_form(existing=None):
             data["next_review_at"] = get_next_review_date(0, 1)
             add_entry(data)
             st.success("Entry saved!")
+
+        # Clear analysis state
+        st.session_state.analysis_result = None
+        st.session_state.pop("ocr_text", None)
+        st.session_state.pop("last_ocr_file", None)
 
         go("dashboard")
         st.rerun()
