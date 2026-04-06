@@ -701,6 +701,8 @@ def render_form(existing=None):
     with col2:
         organ_system = st.selectbox("Organ System", ORGAN_SYSTEMS, index=default_select("organ_system", ORGAN_SYSTEMS))
 
+    title = st.text_input("Title", value=default("title"), placeholder="e.g. Beta-blocker Selectivity in CHF")
+
     question_stem = st.text_area("Question Stem / Key Info", value=default("question_stem"), height=100)
     correct_answer = st.text_area("Correct Answer", value=default("correct_answer"), height=100)
     key_point = st.text_area("Key Learning Point", value=default("key_learning_point"), height=100)
@@ -733,7 +735,7 @@ def render_form(existing=None):
                 image_url = upload_image(sb, pasted_bytes, "screenshot.png")
 
         data = {
-            "title": default("title"),
+            "title": title,
             "image_url": image_url,
             "extracted_text": extracted_text,
             "subject": subject,
