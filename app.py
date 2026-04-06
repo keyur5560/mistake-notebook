@@ -544,18 +544,16 @@ def render_dashboard():
                 summary = summary[:100] + "..."
             created = e["created_at"][:10] if e.get("created_at") else ""
 
-            st.markdown(f"""
-            <div class="entry-card">
-                {tags}
-                <div style="margin-top:8px; font-size:0.95rem; font-weight:700; color:#0f172a; line-height:1.3;">
-                    {title}
-                </div>
-                {'<div style="margin-top:4px; font-size:0.82rem; color:#64748b; line-height:1.5;">' + summary + '</div>' if summary else ''}
-                <div style="margin-top:8px; font-size:0.72rem; color:#94a3b8;">
-                    {created} &middot; Reviewed {e.get('review_count', 0)}x
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            summary_html = f'<div style="margin-top:4px;font-size:0.82rem;color:#64748b;line-height:1.5;">{summary}</div>' if summary else ''
+            card_html = (
+                f'<div class="entry-card">'
+                f'{tags}'
+                f'<div style="margin-top:8px;font-size:0.95rem;font-weight:700;color:#0f172a;line-height:1.3;">{title}</div>'
+                f'{summary_html}'
+                f'<div style="margin-top:8px;font-size:0.72rem;color:#94a3b8;">{created} &middot; Reviewed {e.get("review_count", 0)}x</div>'
+                f'</div>'
+            )
+            st.markdown(card_html, unsafe_allow_html=True)
 
             btn_cols = st.columns([3, 3, 6])
             with btn_cols[0]:
