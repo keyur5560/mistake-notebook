@@ -106,3 +106,88 @@ def analyze_with_groq(
     except Exception as e:
         print(f"Groq analysis error: {e}")
         return None
+
+
+FLASHCARD_PROMPT = """You are a USMLE Step 1 flashcard generator. Given information about a medical question a student got wrong, generate flashcards that will help them master the underlying concepts.
+
+Create exactly {count} flashcards as a JSON array. Each flashcard should have:
+- "front": A clear, specific question (not yes/no — make them think)
+- "back": A concise, memorable answer with the key fact
+
+Mix these types of cards:
+1. Core concept cards — test the fundamental mechanism/pathology they missed
+2. Differentiation cards — "How do you distinguish X from Y?" for commonly confused concepts
+3. Clinical application cards — "A patient presents with X, what's the diagnosis/next step?"
+4. High-yield association cards — classic buzzwords, lab findings, or pathology links
+
+Rules:
+- Make fronts specific enough that there's ONE clear answer
+- Keep backs concise (2-3 sentences max) — add a memorable hook when possible
+- Focus on what the student SPECIFICALLY got wrong, not generic review
+- Include at least one card that directly addresses their mistake
+- Cards should be Step 1 difficulty level
+
+Return ONLY a JSON array like:
+[
+  {{"front": "...", "back": "..."}},
+  {{"front": "...", "back": "..."}}
+]"""
+
+
+def generate_flashcards(entry: dict, count: int = 7) -> list[dict]:
+    """Generate flashcards based on a mistake entry."""
+    api_key = os.environ.get("GROQ_API_KEY", "")
+    if not api_key:
+        return []
+
+    # Build context from the entry
+    context_parts = []
+    if entry.get("question_stem"):
+        context_parts.append(f"**Question:** {entry['question_stem']}")
+    if entry.get("correct_answer"):
+        context_parts.append(f"**Correct Answer:** {entry['correct_answer']}")
+    if entry.get("wrong_answer"):
+        context_parts.append(f"**What student picked (wrong):** {entry['wrong_answer']}")
+    if entry.get("why_i_got_it_wrong"):
+        context_parts.append(f"**Why they got it wrong:** {entry['why_i_got_it_wrong']}")
+    if entry.get("key_learning_point"):
+        context_parts.append(f"**Key learning point:** {entry['key_learning_point']}")
+    if entry.get("subject"):
+        context_parts.append(f"**Subject:** {entry['subject']}")
+    if entry.get("organ_system"):
+        context_parts.append(f"**Organ System:** {entry['organ_system']}")
+    if entry.get("topics_to_review"):
+        context_parts.append(f"**Topics to review:** {', '.join(entry['topics_to_review'])}")
+    if entry.get("extracted_text"):
+        context_parts.append(f"**Raw question text:** {entry['extracted_text'][:500]}")
+
+    if not context_parts:
+        return []
+
+    user_message = "Here is the question the student got wrong:\n\n" + "\n".join(context_parts)
+    user_message += f"\n\nGenerate {count} flashcards to help them master this topic."
+
+    try:
+        client = Groq(api_key=api_key)
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": FLASHCARD_PROMPT.format(count=count)},
+                {"role": "user", "content": user_message},
+            ],
+            temperature=0.5,
+        )
+
+        content = response.choices[0].message.content
+        if not content:
+            return []
+
+        # Extract JSON array
+        match = re.search(r"\[[\s\S]*\]", content)
+        if match:
+            cards = json.loads(match.group())
+            return [c for c in cards if "front" in c and "back" in c]
+        return []
+    except Exception as e:
+        print(f"Flashcard generation error: {e}")
+        return []

@@ -8,7 +8,7 @@ from db import (
     USMLE_SUBJECTS, ORGAN_SYSTEMS, MISTAKE_TYPES,
 )
 from io import BytesIO
-from analyze import extract_text_ocr, analyze_with_groq
+from analyze import extract_text_ocr, analyze_with_groq, generate_flashcards
 from streamlit_paste_button import paste_image_button
 import streamlit_antd_components as sac
 
@@ -292,6 +292,57 @@ st.markdown("""
     .conf-btn-3 { background: #fffbeb !important; color: #d97706 !important; border: 1px solid #fde68a !important; }
     .conf-btn-4, .conf-btn-5 { background: #ecfdf5 !important; color: #059669 !important; border: 1px solid #86efac !important; }
 
+    /* --- Flashcards --- */
+    .flashcard {
+        perspective: 1000px;
+        cursor: pointer;
+        margin-bottom: 10px;
+    }
+    .flashcard-inner {
+        position: relative;
+        min-height: 140px;
+        transition: transform 0.5s ease;
+        transform-style: preserve-3d;
+    }
+    .flashcard.flipped .flashcard-inner {
+        transform: rotateY(180deg);
+    }
+    .flashcard-front, .flashcard-back {
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        min-height: 140px;
+        backface-visibility: hidden;
+        border-radius: 14px;
+        padding: 22px 24px;
+        display: flex;
+        align-items: center;
+        font-size: 0.9rem;
+        line-height: 1.55;
+    }
+    .flashcard-front {
+        background: linear-gradient(145deg, #ffffff, #f8fafc);
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        color: #1e293b;
+        font-weight: 600;
+    }
+    .flashcard-back {
+        background: linear-gradient(135deg, #6366f1, #8b5cf6);
+        color: white;
+        transform: rotateY(180deg);
+        font-weight: 500;
+    }
+    .flashcard-badge {
+        position: absolute;
+        top: 10px;
+        right: 14px;
+        font-size: 0.6rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        opacity: 0.5;
+    }
+
     /* --- Scrollbar --- */
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -318,6 +369,61 @@ def go(page, view_id=None):
     if page == "review":
         st.session_state.review_idx = 0
         st.session_state.review_show = False
+        st.session_state.pop("flashcards", None)
+
+
+def render_flashcards(entry: dict, key_prefix: str = "fc"):
+    """Render AI-generated flashcards for a mistake entry."""
+    fc_key = f"{key_prefix}_cards_{entry['id']}"
+
+    if st.button("Generate Flashcards", key=f"{key_prefix}_gen_{entry['id']}", type="primary", use_container_width=True):
+        with st.spinner("Generating flashcards with Groq..."):
+            cards = generate_flashcards(entry, count=7)
+            if cards:
+                st.session_state[fc_key] = cards
+                st.rerun()
+            else:
+                st.warning("Failed to generate flashcards.")
+
+    cards = st.session_state.get(fc_key, [])
+    if not cards:
+        return
+
+    st.markdown("#### Flashcards")
+    st.caption("Click a card to flip it")
+
+    for i, card in enumerate(cards):
+        card_id = f"{key_prefix}_{entry['id']}_{i}"
+        flipped_key = f"flip_{card_id}"
+        if flipped_key not in st.session_state:
+            st.session_state[flipped_key] = False
+
+        is_flipped = st.session_state[flipped_key]
+        flip_class = "flipped" if is_flipped else ""
+
+        st.markdown(f"""
+        <div class="flashcard {flip_class}" onclick="
+            this.classList.toggle('flipped');
+        ">
+            <div class="flashcard-inner">
+                <div class="flashcard-front">
+                    <div class="flashcard-badge">Q</div>
+                    <div>{card['front']}</div>
+                </div>
+                <div class="flashcard-back">
+                    <div class="flashcard-badge">A</div>
+                    <div>{card['back']}</div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    if st.button("Regenerate Cards", key=f"{key_prefix}_regen_{entry['id']}"):
+        with st.spinner("Regenerating..."):
+            cards = generate_flashcards(entry, count=7)
+            if cards:
+                st.session_state[fc_key] = cards
+                st.rerun()
 
 
 # ===================== DASHBOARD =====================
@@ -728,6 +834,10 @@ def render_view(entry_id):
         with st.expander("OCR Extracted Text"):
             st.code(entry["extracted_text"], language=None)
 
+    # Flashcards
+    st.markdown("---")
+    render_flashcards(entry, key_prefix="view")
+
     # Review tracker
     st.markdown("---")
     st.markdown("#### Review Tracker")
@@ -819,6 +929,11 @@ def render_review():
             st.markdown(f'<div class="green-box"><div class="heading-xs" style="color:#16a34a">Key Learning Point</div><strong>{entry["key_learning_point"]}</strong></div>', unsafe_allow_html=True)
         if entry.get("mnemonic_or_tip"):
             st.markdown(f'<div class="amber-box"><div class="heading-xs" style="color:#d97706">Mnemonic / Tip</div>{entry["mnemonic_or_tip"]}</div>', unsafe_allow_html=True)
+
+        # Flashcards in review
+        st.markdown("---")
+        render_flashcards(entry, key_prefix="rev")
+        st.markdown("---")
 
         st.write("How confident do you feel now?")
         cols = st.columns(5)
