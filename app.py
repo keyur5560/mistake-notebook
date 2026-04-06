@@ -783,22 +783,22 @@ def render_view(entry_id):
             st.rerun()
         return
 
-    col1, col2 = st.columns([3, 1])
+    st.write("")  # spacing so Back button isn't clipped
+
+    col1, col2, col3, col4 = st.columns([3, 2, 2, 5])
     with col1:
         if st.button("< Back"):
             go("dashboard")
             st.rerun()
     with col2:
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button("Edit", use_container_width=True):
-                go("edit", entry_id)
-                st.rerun()
-        with c2:
-            if st.button("Delete", use_container_width=True):
-                delete_entry(sb, entry_id)
-                go("dashboard")
-                st.rerun()
+        if st.button("Edit", use_container_width=True):
+            go("edit", entry_id)
+            st.rerun()
+    with col3:
+        if st.button("Delete", use_container_width=True):
+            delete_entry(sb, entry_id)
+            go("dashboard")
+            st.rerun()
 
     # Tags
     tags = (
