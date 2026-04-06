@@ -81,6 +81,7 @@ def row_to_dict(row: dict) -> dict:
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "user_id": row.get("user_id", ""),
+        "title": row.get("title", ""),
         "image_url": row.get("image_url", ""),
         "extracted_text": row.get("extracted_text", ""),
         "subject": row["subject"],

@@ -520,17 +520,31 @@ def render_dashboard():
             )
             if is_due:
                 tags += '<span class="tag tag-due">Due for review</span>'
-            summary = e.get("key_learning_point") or e.get("question_stem") or "No notes yet"
-            if len(summary) > 120:
-                summary = summary[:120] + "..."
+            title = e.get("title") or ""
+            if not title:
+                # Generate a title from available content
+                kp = e.get("key_learning_point", "")
+                qs = e.get("question_stem", "")
+                if kp:
+                    title = kp[:80] + ("..." if len(kp) > 80 else "")
+                elif qs:
+                    title = qs[:80] + ("..." if len(qs) > 80 else "")
+                else:
+                    title = "Untitled Entry"
+            summary = e.get("key_learning_point") or e.get("question_stem") or ""
+            if summary == title:
+                summary = ""
+            if len(summary) > 100:
+                summary = summary[:100] + "..."
             created = e["created_at"][:10] if e.get("created_at") else ""
 
             st.markdown(f"""
             <div class="entry-card">
                 {tags}
-                <div style="margin-top:8px; font-size:0.88rem; color:#334155; line-height:1.5;">
-                    {summary}
+                <div style="margin-top:8px; font-size:0.95rem; font-weight:700; color:#0f172a; line-height:1.3;">
+                    {title}
                 </div>
+                {'<div style="margin-top:4px; font-size:0.82rem; color:#64748b; line-height:1.5;">' + summary + '</div>' if summary else ''}
                 <div style="margin-top:8px; font-size:0.72rem; color:#94a3b8;">
                     {created} &middot; Reviewed {e.get('review_count', 0)}x
                 </div>
@@ -715,6 +729,7 @@ def render_form(existing=None):
                 image_url = upload_image(sb, pasted_bytes, "screenshot.png")
 
         data = {
+            "title": default("title"),
             "image_url": image_url,
             "extracted_text": extracted_text,
             "subject": subject,

@@ -35,6 +35,7 @@ Use all of this to provide a thorough analysis. The OCR may have errors — use 
 Return a JSON object with these fields:
 
 {{
+  "title": "A short, descriptive title for this question (5-10 words). Example: 'Beta-blocker Selectivity in CHF' or 'Renal Tubular Acidosis Type 1 vs Type 2'",
   "subject": "One of: {', '.join(USMLE_SUBJECTS)}",
   "organ_system": "One of: {', '.join(ORGAN_SYSTEMS)}",
   "question_stem": "The core clinical vignette / question stem, cleaned up from OCR artifacts and formatted clearly",
