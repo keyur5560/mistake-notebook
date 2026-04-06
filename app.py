@@ -555,13 +555,13 @@ def render_dashboard():
             )
             st.markdown(card_html, unsafe_allow_html=True)
 
-            btn_cols = st.columns([3, 3, 6])
+            btn_cols = st.columns([2, 2, 5])
             with btn_cols[0]:
                 if st.button("View", key=f"view_{e['id']}", use_container_width=True):
                     go("view", e["id"])
                     st.rerun()
             with btn_cols[1]:
-                if st.button("Del", key=f"del_{e['id']}", use_container_width=True):
+                if st.button("Delete", key=f"del_{e['id']}", use_container_width=True):
                     delete_entry(sb, e["id"])
                     st.rerun()
     else:
