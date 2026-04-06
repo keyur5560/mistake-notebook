@@ -1,6 +1,5 @@
 import os
 import uuid
-import base64
 from datetime import datetime, timedelta
 from supabase import create_client, Client
 
@@ -31,6 +30,15 @@ def get_supabase() -> Client:
     return create_client(url, key)
 
 
+def get_authed_supabase(access_token: str) -> Client:
+    """Create a Supabase client authenticated with the user's access token."""
+    url = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
+    key = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
+    sb = create_client(url, key)
+    sb.postgrest.auth(access_token)
+    return sb
+
+
 def get_next_review_date(review_count: int, confidence: int) -> str:
     idx = min(review_count, len(INTERVALS) - 1)
     if confidence >= 4:
@@ -43,9 +51,8 @@ def get_next_review_date(review_count: int, confidence: int) -> str:
     return (datetime.utcnow() + timedelta(days=days)).isoformat()
 
 
-def upload_image(file_bytes: bytes, filename: str) -> str:
+def upload_image(sb: Client, file_bytes: bytes, filename: str) -> str:
     """Upload image to Supabase Storage, return public URL."""
-    sb = get_supabase()
     ext = filename.rsplit(".", 1)[-1] if "." in filename else "png"
     storage_name = f"{uuid.uuid4()}.{ext}"
 
@@ -57,13 +64,12 @@ def upload_image(file_bytes: bytes, filename: str) -> str:
     return res
 
 
-def delete_image(image_url: str):
+def delete_image(sb: Client, image_url: str):
     if not image_url:
         return
     parts = image_url.split("/screenshots/")
     if len(parts) < 2:
         return
-    sb = get_supabase()
     sb.storage.from_("screenshots").remove([parts[1]])
 
 
@@ -72,6 +78,7 @@ def row_to_dict(row: dict) -> dict:
         "id": row["id"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
+        "user_id": row.get("user_id", ""),
         "image_url": row.get("image_url", ""),
         "extracted_text": row.get("extracted_text", ""),
         "subject": row["subject"],
@@ -92,30 +99,26 @@ def row_to_dict(row: dict) -> dict:
     }
 
 
-def load_entries() -> list[dict]:
-    sb = get_supabase()
+def load_entries(sb: Client) -> list[dict]:
     res = sb.table("mistakes").select("*").order("created_at", desc=True).execute()
     return [row_to_dict(r) for r in res.data]
 
 
-def load_entry(entry_id: str) -> dict | None:
-    sb = get_supabase()
+def load_entry(sb: Client, entry_id: str) -> dict | None:
     res = sb.table("mistakes").select("*").eq("id", entry_id).execute()
     if res.data:
         return row_to_dict(res.data[0])
     return None
 
 
-def add_entry(data: dict) -> dict | None:
-    sb = get_supabase()
+def add_entry(sb: Client, data: dict) -> dict | None:
     res = sb.table("mistakes").insert(data).execute()
     if res.data:
         return row_to_dict(res.data[0])
     return None
 
 
-def update_entry(entry_id: str, data: dict) -> dict | None:
-    sb = get_supabase()
+def update_entry(sb: Client, entry_id: str, data: dict) -> dict | None:
     data["updated_at"] = datetime.utcnow().isoformat()
     res = sb.table("mistakes").update(data).eq("id", entry_id).execute()
     if res.data:
@@ -123,16 +126,14 @@ def update_entry(entry_id: str, data: dict) -> dict | None:
     return None
 
 
-def delete_entry(entry_id: str):
-    entry = load_entry(entry_id)
+def delete_entry(sb: Client, entry_id: str):
+    entry = load_entry(sb, entry_id)
     if entry and entry.get("image_url"):
-        delete_image(entry["image_url"])
-    sb = get_supabase()
+        delete_image(sb, entry["image_url"])
     sb.table("mistakes").delete().eq("id", entry_id).execute()
 
 
-def get_due_for_review() -> list[dict]:
-    sb = get_supabase()
+def get_due_for_review(sb: Client) -> list[dict]:
     now = datetime.utcnow().isoformat()
     res = (
         sb.table("mistakes")

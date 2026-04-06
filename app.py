@@ -4,6 +4,7 @@ from collections import Counter, defaultdict
 from db import (
     load_entries, load_entry, add_entry, update_entry, delete_entry,
     get_due_for_review, upload_image, get_next_review_date,
+    get_supabase, get_authed_supabase,
     USMLE_SUBJECTS, ORGAN_SYSTEMS, MISTAKE_TYPES,
 )
 from io import BytesIO
@@ -15,6 +16,76 @@ st.set_page_config(
     page_icon="📝",
     layout="wide",
 )
+
+
+# ===================== AUTH =====================
+def render_login():
+    """Show login/signup page."""
+    st.title("Mistake Notebook")
+    st.caption("USMLE Step 1 Study Tool")
+    st.markdown("---")
+
+    tab_login, tab_signup = st.tabs(["Log In", "Sign Up"])
+
+    with tab_login:
+        email = st.text_input("Email", key="login_email")
+        password = st.text_input("Password", type="password", key="login_password")
+        if st.button("Log In", type="primary", use_container_width=True):
+            if not email or not password:
+                st.error("Please enter email and password.")
+                return
+            sb = get_supabase()
+            try:
+                res = sb.auth.sign_in_with_password({"email": email, "password": password})
+                st.session_state.access_token = res.session.access_token
+                st.session_state.user_id = res.user.id
+                st.session_state.user_email = res.user.email
+                st.rerun()
+            except Exception as e:
+                st.error(f"Login failed: {e}")
+
+    with tab_signup:
+        new_email = st.text_input("Email", key="signup_email")
+        new_password = st.text_input("Password", type="password", key="signup_password")
+        confirm_password = st.text_input("Confirm Password", type="password", key="signup_confirm")
+        if st.button("Sign Up", type="primary", use_container_width=True):
+            if not new_email or not new_password:
+                st.error("Please enter email and password.")
+                return
+            if new_password != confirm_password:
+                st.error("Passwords don't match.")
+                return
+            sb = get_supabase()
+            try:
+                res = sb.auth.sign_up({"email": new_email, "password": new_password})
+                if res.user and res.session:
+                    st.session_state.access_token = res.session.access_token
+                    st.session_state.user_id = res.user.id
+                    st.session_state.user_email = res.user.email
+                    st.rerun()
+                else:
+                    st.success("Check your email for a confirmation link, then log in.")
+            except Exception as e:
+                st.error(f"Sign up failed: {e}")
+
+
+def get_sb():
+    """Get the authenticated Supabase client from session state."""
+    token = st.session_state.get("access_token")
+    if not token:
+        return None
+    return get_authed_supabase(token)
+
+
+def is_logged_in():
+    return "access_token" in st.session_state and st.session_state.access_token
+
+
+def logout():
+    for key in ["access_token", "user_id", "user_email"]:
+        st.session_state.pop(key, None)
+    st.session_state.page = "dashboard"
+    st.rerun()
 
 # --- Custom CSS ---
 st.markdown("""
@@ -163,11 +234,19 @@ def go(page, view_id=None):
 
 # ===================== DASHBOARD =====================
 def render_dashboard():
-    entries = load_entries()
-    due = get_due_for_review()
+    sb = get_sb()
+    entries = load_entries(sb)
+    due = get_due_for_review(sb)
 
-    st.title("Mistake Notebook")
-    st.caption(f"USMLE Step 1 · {len(entries)} entries logged")
+    # Header with logout
+    hdr1, hdr2 = st.columns([4, 1])
+    with hdr1:
+        st.title("Mistake Notebook")
+        st.caption(f"USMLE Step 1 · {len(entries)} entries logged · {st.session_state.get('user_email', '')}")
+    with hdr2:
+        st.write("")
+        if st.button("Log Out", use_container_width=True):
+            logout()
 
     btn_cols = st.columns([1, 1, 1.3, 2.7])
     with btn_cols[0]:
@@ -281,7 +360,7 @@ def render_dashboard():
                             st.rerun()
                     with c2:
                         if st.button("Delete", key=f"del_{e['id']}", use_container_width=True):
-                            delete_entry(e["id"])
+                            delete_entry(sb, e["id"])
                             st.rerun()
                 st.divider()
     else:
@@ -445,11 +524,12 @@ def render_form(existing=None):
 
     # Save
     if st.button("Update Entry" if is_edit else "Save Entry", type="primary", use_container_width=True):
+        sb = get_sb()
         image_url = existing.get("image_url", "") if existing else ""
         pasted_bytes = st.session_state.get("pasted_image_bytes")
         if pasted_bytes:
             with st.spinner("Uploading image..."):
-                image_url = upload_image(pasted_bytes, "screenshot.png")
+                image_url = upload_image(sb, pasted_bytes, "screenshot.png")
 
         data = {
             "image_url": image_url,
@@ -468,13 +548,14 @@ def render_form(existing=None):
         }
 
         if is_edit:
-            update_entry(existing["id"], data)
+            update_entry(sb, existing["id"], data)
             st.success("Entry updated!")
         else:
             data["review_count"] = 0
             data["confidence"] = 1
             data["next_review_at"] = get_next_review_date(0, 1)
-            add_entry(data)
+            data["user_id"] = st.session_state.get("user_id")
+            add_entry(sb, data)
             st.success("Entry saved!")
 
         # Clear analysis state
@@ -489,7 +570,8 @@ def render_form(existing=None):
 
 # ===================== VIEW ENTRY =====================
 def render_view(entry_id):
-    entry = load_entry(entry_id)
+    sb = get_sb()
+    entry = load_entry(sb, entry_id)
     if not entry:
         st.error("Entry not found.")
         if st.button("Back"):
@@ -510,7 +592,7 @@ def render_view(entry_id):
                 st.rerun()
         with c2:
             if st.button("Delete", use_container_width=True):
-                delete_entry(entry_id)
+                delete_entry(sb, entry_id)
                 go("dashboard")
                 st.rerun()
 
@@ -590,7 +672,7 @@ def render_view(entry_id):
         conf = i + 1
         with col:
             if st.button(labels[i], key=f"conf_{conf}", use_container_width=True):
-                update_entry(entry_id, {
+                update_entry(sb, entry_id, {
                     "review_count": rc + 1,
                     "last_reviewed_at": datetime.utcnow().isoformat(),
                     "next_review_at": get_next_review_date(rc + 1, conf),
@@ -606,7 +688,8 @@ def render_view(entry_id):
 
 # ===================== REVIEW MODE =====================
 def render_review():
-    queue = get_due_for_review()
+    sb = get_sb()
+    queue = get_due_for_review(sb)
 
     if st.button("< Exit Review"):
         go("dashboard")
@@ -668,7 +751,7 @@ def render_review():
             with col:
                 if st.button(labels[i], key=f"rev_conf_{conf}", use_container_width=True):
                     rc = entry.get("review_count", 0)
-                    update_entry(entry["id"], {
+                    update_entry(sb, entry["id"], {
                         "review_count": rc + 1,
                         "last_reviewed_at": datetime.utcnow().isoformat(),
                         "next_review_at": get_next_review_date(rc + 1, conf),
@@ -681,7 +764,8 @@ def render_review():
 
 # ===================== ANALYTICS =====================
 def render_analytics():
-    entries = load_entries()
+    sb = get_sb()
+    entries = load_entries(sb)
 
     if st.button("< Back to Dashboard"):
         go("dashboard")
@@ -792,7 +876,7 @@ def render_analytics():
     st.markdown("#### Review Compliance")
     total_due_ever = len([e for e in entries if e.get("review_count", 0) > 0 or e.get("next_review_at")])
     total_reviewed = len([e for e in entries if e.get("review_count", 0) > 0])
-    due_now = len(get_due_for_review())
+    due_now = len(get_due_for_review(sb))
 
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -949,18 +1033,22 @@ def render_analytics():
 
 
 # ===================== ROUTER =====================
-page = st.session_state.page
+if not is_logged_in():
+    render_login()
+else:
+    page = st.session_state.page
 
-if page == "dashboard":
-    render_dashboard()
-elif page == "new":
-    render_form()
-elif page == "edit":
-    entry = load_entry(st.session_state.view_id) if st.session_state.view_id else None
-    render_form(existing=entry)
-elif page == "view":
-    render_view(st.session_state.view_id)
-elif page == "analytics":
-    render_analytics()
-elif page == "review":
-    render_review()
+    if page == "dashboard":
+        render_dashboard()
+    elif page == "new":
+        render_form()
+    elif page == "edit":
+        sb = get_sb()
+        entry = load_entry(sb, st.session_state.view_id) if st.session_state.view_id else None
+        render_form(existing=entry)
+    elif page == "view":
+        render_view(st.session_state.view_id)
+    elif page == "analytics":
+        render_analytics()
+    elif page == "review":
+        render_review()
