@@ -1313,13 +1313,13 @@ else:
             logout()
         elif nav == "Dashboard" and st.session_state.page not in ("view", "edit"):
             st.session_state.page = "dashboard"
-        elif nav == "Log Mistake":
+        elif nav == "Log Mistake" and st.session_state.page != "new":
             st.session_state.page = "new"
-        elif nav == "Review":
+        elif nav == "Review" and st.session_state.page != "review":
             st.session_state.page = "review"
             st.session_state.review_idx = 0
             st.session_state.review_show = False
-        elif nav == "Analytics":
+        elif nav == "Analytics" and st.session_state.page != "analytics":
             st.session_state.page = "analytics"
 
     page = st.session_state.page
