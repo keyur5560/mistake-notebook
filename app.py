@@ -638,7 +638,7 @@ def render_analytics():
     import pandas as pd
     df_heat = pd.DataFrame(heatmap_data).set_index("Subject")
     # Show as colored dataframe
-    st.dataframe(df_heat.style.background_gradient(cmap="YlOrRd", axis=None), use_container_width=True)
+    st.dataframe(df_heat, use_container_width=True)
 
     col1, col2 = st.columns(2)
 
