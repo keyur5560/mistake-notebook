@@ -5,7 +5,9 @@ from db import (
     get_due_for_review, upload_image, get_next_review_date,
     USMLE_SUBJECTS, ORGAN_SYSTEMS, MISTAKE_TYPES,
 )
+from io import BytesIO
 from analyze import extract_text_ocr, analyze_with_groq
+from streamlit_paste_button import paste_image_button
 
 st.set_page_config(
     page_title="Mistake Notebook — USMLE Step 1",
@@ -226,22 +228,29 @@ def render_form(existing=None):
     if "analysis_result" not in st.session_state:
         st.session_state.analysis_result = None
 
-    # Image upload
-    uploaded = st.file_uploader("Upload Screenshot", type=["png", "jpg", "jpeg", "webp"])
+    # Paste screenshot from clipboard
+    paste_result = paste_image_button("Paste Screenshot from Clipboard", key="paste_img")
 
-    if existing and existing.get("image_url") and not uploaded:
+    if existing and existing.get("image_url") and paste_result.image_data is None:
         st.image(existing["image_url"], caption="Current screenshot", width=400)
 
     # OCR only (no auto-analysis yet)
     ocr_text = existing.get("extracted_text", "") if existing else ""
 
-    if uploaded:
-        st.image(uploaded, caption="Uploaded screenshot", width=400)
-        if "last_ocr_file" not in st.session_state or st.session_state.last_ocr_file != uploaded.name:
+    if paste_result.image_data is not None:
+        st.image(paste_result.image_data, caption="Pasted screenshot", width=400)
+        # Convert PIL Image to bytes for OCR and upload
+        buf = BytesIO()
+        paste_result.image_data.save(buf, format="PNG")
+        pasted_bytes = buf.getvalue()
+        st.session_state.pasted_image_bytes = pasted_bytes
+
+        paste_id = id(paste_result.image_data)
+        if st.session_state.get("last_paste_id") != paste_id:
             with st.spinner("Extracting text (OCR)..."):
-                ocr_text = extract_text_ocr(uploaded.getvalue())
+                ocr_text = extract_text_ocr(pasted_bytes)
                 st.session_state.ocr_text = ocr_text
-                st.session_state.last_ocr_file = uploaded.name
+                st.session_state.last_paste_id = paste_id
                 st.session_state.analysis_result = None  # reset on new image
         else:
             ocr_text = st.session_state.get("ocr_text", "")
@@ -359,9 +368,10 @@ def render_form(existing=None):
     # Save
     if st.button("Update Entry" if is_edit else "Save Entry", type="primary", use_container_width=True):
         image_url = existing.get("image_url", "") if existing else ""
-        if uploaded:
+        pasted_bytes = st.session_state.get("pasted_image_bytes")
+        if pasted_bytes:
             with st.spinner("Uploading image..."):
-                image_url = upload_image(uploaded.getvalue(), uploaded.name)
+                image_url = upload_image(pasted_bytes, "screenshot.png")
 
         data = {
             "image_url": image_url,
@@ -392,7 +402,8 @@ def render_form(existing=None):
         # Clear analysis state
         st.session_state.analysis_result = None
         st.session_state.pop("ocr_text", None)
-        st.session_state.pop("last_ocr_file", None)
+        st.session_state.pop("last_paste_id", None)
+        st.session_state.pop("pasted_image_bytes", None)
 
         go("dashboard")
         st.rerun()
