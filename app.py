@@ -11,12 +11,15 @@ from io import BytesIO
 from analyze import extract_text_ocr, analyze_with_groq, generate_flashcards
 from streamlit_paste_button import paste_image_button
 import streamlit_antd_components as sac
+import extra_streamlit_components as stx
 
 st.set_page_config(
     page_title="Mistake Notebook — USMLE Step 1",
     page_icon="📝",
     layout="wide",
 )
+
+cookie_manager = stx.CookieManager(key="mn_cookies")
 
 
 # ===================== AUTH =====================
@@ -44,6 +47,7 @@ def render_login():
                 st.session_state.access_token = res.session.access_token
                 st.session_state.user_id = res.user.id
                 st.session_state.user_email = res.user.email
+                save_auth_cookies()
                 st.rerun()
             except Exception as e:
                 st.error(f"Login failed: {e}")
@@ -66,6 +70,7 @@ def render_login():
                     st.session_state.access_token = res.session.access_token
                     st.session_state.user_id = res.user.id
                     st.session_state.user_email = res.user.email
+                    save_auth_cookies()
                     st.rerun()
                 else:
                     st.success("Check your email for a confirmation link, then log in.")
@@ -82,12 +87,34 @@ def get_sb():
 
 
 def is_logged_in():
-    return "access_token" in st.session_state and st.session_state.access_token
+    # Check session state first
+    if st.session_state.get("access_token"):
+        return True
+    # Try restoring from cookies
+    token = cookie_manager.get("mn_access_token")
+    if token:
+        st.session_state.access_token = token
+        st.session_state.user_id = cookie_manager.get("mn_user_id") or ""
+        st.session_state.user_email = cookie_manager.get("mn_user_email") or ""
+        return True
+    return False
+
+
+def save_auth_cookies():
+    """Save auth data to cookies (30 day expiry)."""
+    import datetime
+    expires = datetime.datetime.now() + datetime.timedelta(days=30)
+    cookie_manager.set("mn_access_token", st.session_state.get("access_token", ""), expires_at=expires, key="set_token")
+    cookie_manager.set("mn_user_id", st.session_state.get("user_id", ""), expires_at=expires, key="set_uid")
+    cookie_manager.set("mn_user_email", st.session_state.get("user_email", ""), expires_at=expires, key="set_email")
 
 
 def logout():
     for key in ["access_token", "user_id", "user_email"]:
         st.session_state.pop(key, None)
+    cookie_manager.delete("mn_access_token", key="del_token")
+    cookie_manager.delete("mn_user_id", key="del_uid")
+    cookie_manager.delete("mn_user_email", key="del_email")
     st.session_state.page = "dashboard"
     st.rerun()
 
