@@ -910,20 +910,28 @@ def render_review():
 
     idx = st.session_state.review_idx
     if idx >= len(queue):
-        st.markdown("### Review complete!")
-        st.write(f"{len(queue)} entries reviewed. Great work!")
-        if st.button("Back to Dashboard", type="primary"):
-            go("dashboard")
-            st.rerun()
-        return
+        idx = len(queue) - 1
+        st.session_state.review_idx = idx
 
     entry = queue[idx]
 
     # Check if this entry needs analysis (came from extension without Groq)
     needs_analysis = not entry.get("question_stem") and not entry.get("key_learning_point")
 
-    # Progress
-    st.progress((idx + 1) / len(queue), text=f"{idx + 1} / {len(queue)}")
+    # Navigation: prev / progress / next
+    nav1, nav2, nav3 = st.columns([2, 5, 2])
+    with nav1:
+        if st.button("< Prev", disabled=(idx == 0), use_container_width=True):
+            st.session_state.review_idx = idx - 1
+            st.session_state.review_show = False
+            st.rerun()
+    with nav2:
+        st.progress((idx + 1) / len(queue), text=f"{idx + 1} / {len(queue)}")
+    with nav3:
+        if st.button("Next >", disabled=(idx >= len(queue) - 1), use_container_width=True):
+            st.session_state.review_idx = idx + 1
+            st.session_state.review_show = False
+            st.rerun()
 
     # Title
     title = entry.get("title") or ""
