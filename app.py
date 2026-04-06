@@ -91,45 +91,45 @@ def logout():
     st.session_state.page = "dashboard"
     st.rerun()
 
-# --- Custom CSS ---
+# --- Custom CSS (Bootcamp.com-inspired dark theme) ---
 st.markdown("""
 <style>
-    /* --- Global --- */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    /* --- Fonts --- */
+    @import url('https://fonts.googleapis.com/css2?family=Merriweather:wght@300;400;700;900&family=Inter:wght@400;500;600;700&display=swap');
 
+    /* --- Global --- */
     .stApp {
         max-width: 980px;
         margin: 0 auto;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
-    /* Layout spacing */
     .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
-    h1 { font-size: 1.8rem !important; font-weight: 800 !important; letter-spacing: -0.03em; color: #0f172a !important; }
-    h2 { font-size: 1.3rem !important; font-weight: 700 !important; letter-spacing: -0.02em; margin-top: 1.2rem !important; color: #1e293b !important; }
-    h3 { font-size: 1.05rem !important; font-weight: 700 !important; color: #334155 !important; }
-    h4 { font-size: 0.9rem !important; font-weight: 600 !important; color: #475569 !important; }
+    h1 { font-family: 'Merriweather', serif !important; font-size: 1.8rem !important; font-weight: 900 !important; letter-spacing: -0.02em; color: #f1f5f9 !important; }
+    h2 { font-family: 'Merriweather', serif !important; font-size: 1.3rem !important; font-weight: 700 !important; color: #e2e8f0 !important; margin-top: 1.2rem !important; }
+    h3 { font-family: 'Merriweather', serif !important; font-size: 1.05rem !important; font-weight: 700 !important; color: #cbd5e1 !important; }
+    h4 { font-family: 'Merriweather', serif !important; font-size: 0.9rem !important; font-weight: 700 !important; color: #94a3b8 !important; }
+    p, li, span, div { font-family: 'Inter', sans-serif; }
 
     .stMarkdown, .stCaption { margin-bottom: 0 !important; }
-    hr { margin: 0.75rem 0 !important; border-color: #f1f5f9 !important; }
+    hr { margin: 0.75rem 0 !important; border-color: #1e293b !important; }
 
     /* --- Stat Cards --- */
     .stat-card {
-        background: linear-gradient(145deg, #ffffff, #f8fafc);
-        border: 1px solid #e2e8f0;
-        border-radius: 16px;
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 12px;
         padding: 22px 18px;
         text-align: center;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
         transition: all 0.2s ease;
     }
     .stat-card:hover {
-        box-shadow: 0 8px 25px rgba(0,0,0,0.08);
+        border-color: #3b82f6;
+        box-shadow: 0 0 20px rgba(59,130,246,0.15);
         transform: translateY(-2px);
     }
-    .stat-number { font-size: 2rem; font-weight: 800; color: #0f172a; line-height: 1.1; }
+    .stat-number { font-family: 'Merriweather', serif; font-size: 2rem; font-weight: 900; color: #f8fafc; line-height: 1.1; }
     .stat-label {
-        font-size: 0.65rem; font-weight: 600; color: #94a3b8;
+        font-size: 0.65rem; font-weight: 600; color: #64748b;
         text-transform: uppercase; letter-spacing: 0.06em; margin-top: 6px;
     }
 
@@ -137,68 +137,65 @@ st.markdown("""
     .tag {
         display: inline-flex; align-items: center;
         padding: 4px 12px;
-        border-radius: 100px;
+        border-radius: 6px;
         font-size: 0.68rem;
         font-weight: 600;
         margin-right: 6px;
         margin-bottom: 6px;
-        letter-spacing: 0.01em;
+        letter-spacing: 0.02em;
         line-height: 1.4;
     }
-    .tag-subject { background: #ede9fe; color: #6d28d9; }
-    .tag-system { background: #d1fae5; color: #047857; }
-    .tag-mistake { background: #ffe4e6; color: #be123c; }
-    .tag-due { background: #fef3c7; color: #b45309; animation: pulse-tag 2s infinite; }
-    @keyframes pulse-tag { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
+    .tag-subject { background: #1e3a5f; color: #60a5fa; }
+    .tag-system { background: #14332a; color: #34d399; }
+    .tag-mistake { background: #3b1525; color: #fb7185; }
+    .tag-due { background: #3b2f1a; color: #fbbf24; animation: pulse-tag 2s infinite; }
+    @keyframes pulse-tag { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
 
     /* --- Content Boxes --- */
     .section-box, .green-box, .amber-box, .blue-box, .purple-box, .red-box {
-        border-radius: 14px;
+        border-radius: 10px;
         padding: 20px 22px;
         margin-bottom: 12px;
         font-size: 0.88rem;
         line-height: 1.6;
-        transition: box-shadow 0.2s ease;
+        color: #e2e8f0;
     }
     .section-box {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+        background: #1e293b;
+        border: 1px solid #334155;
     }
-    .section-box:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
-    .green-box { background: linear-gradient(135deg, #ecfdf5, #f0fdf9); border: 1px solid #86efac; }
-    .amber-box { background: linear-gradient(135deg, #fffbeb, #fefce8); border: 1px solid #fcd34d; }
-    .blue-box { background: linear-gradient(135deg, #eff6ff, #f0f9ff); border: 1px solid #93c5fd; }
-    .purple-box { background: linear-gradient(135deg, #f5f3ff, #faf5ff); border: 1px solid #c4b5fd; }
-    .red-box { background: linear-gradient(135deg, #fef2f2, #fff1f2); border: 1px solid #fca5a5; }
+    .green-box { background: #0c2a1f; border: 1px solid #065f46; }
+    .amber-box { background: #2a2312; border: 1px solid #92400e; }
+    .blue-box { background: #0c1e33; border: 1px solid #1e40af; }
+    .purple-box { background: #1a1033; border: 1px solid #5b21b6; }
+    .red-box { background: #2a1215; border: 1px solid #991b1b; }
 
     .heading-xs {
         font-size: 0.6rem;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.08em;
-        color: #94a3b8;
+        color: #64748b;
         margin-bottom: 10px;
     }
 
     /* --- Entry Card --- */
     .entry-card {
-        background: #fff;
-        border: 1px solid #e2e8f0;
-        border-radius: 14px;
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 10px;
         padding: 16px 20px;
         margin-bottom: 8px;
         transition: all 0.15s ease;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.03);
     }
     .entry-card:hover {
-        border-color: #c7d2fe;
-        box-shadow: 0 4px 16px rgba(99,102,241,0.08);
+        border-color: #3b82f6;
+        box-shadow: 0 0 16px rgba(59,130,246,0.1);
     }
 
     /* --- Buttons --- */
     .stButton > button {
-        border-radius: 10px !important;
+        border-radius: 8px !important;
         font-weight: 600 !important;
         font-size: 0.82rem !important;
         padding: 0.5rem 1.25rem !important;
@@ -207,112 +204,72 @@ st.markdown("""
     }
     .stButton > button:hover {
         transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(99,102,241,0.18);
     }
     .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
+        background: #2563eb !important;
         border: none !important;
         color: white !important;
     }
     .stButton > button[kind="primary"]:hover {
-        background: linear-gradient(135deg, #4f46e5, #7c3aed) !important;
-        box-shadow: 0 6px 20px rgba(99,102,241,0.3) !important;
+        background: #1d4ed8 !important;
+        box-shadow: 0 4px 16px rgba(37,99,235,0.3) !important;
     }
 
     /* --- Inputs --- */
     .stTextInput > div > div > input,
     .stTextArea > div > div > textarea,
     .stSelectbox > div > div {
-        border-radius: 10px !important;
-        border-color: #e2e8f0 !important;
+        border-radius: 8px !important;
         font-size: 0.88rem !important;
-        background: #fff !important;
-    }
-    .stTextInput > div > div > input:focus,
-    .stTextArea > div > div > textarea:focus {
-        border-color: #818cf8 !important;
-        box-shadow: 0 0 0 3px rgba(99,102,241,0.1) !important;
     }
 
     /* --- Progress bars --- */
     .stProgress > div > div > div {
-        background: linear-gradient(90deg, #6366f1, #a78bfa) !important;
-        border-radius: 6px !important;
+        background: linear-gradient(90deg, #2563eb, #3b82f6) !important;
+        border-radius: 4px !important;
     }
 
     /* --- Dividers --- */
     .stDivider { opacity: 0.3; }
 
     /* --- Dataframes --- */
-    .stDataFrame { border-radius: 12px; overflow: hidden; }
+    .stDataFrame { border-radius: 8px; overflow: hidden; }
 
     /* --- Login page --- */
-    .login-container {
-        max-width: 420px;
-        margin: 3rem auto;
-        padding: 2.5rem;
-        background: #fff;
-        border-radius: 20px;
-        border: 1px solid #e2e8f0;
-        box-shadow: 0 4px 24px rgba(0,0,0,0.06);
-    }
     .login-header {
         text-align: center;
         margin-bottom: 2rem;
     }
     .login-header h1 {
-        font-size: 1.5rem !important;
+        font-size: 1.6rem !important;
         margin-bottom: 4px !important;
     }
     .login-header p {
-        color: #94a3b8;
+        color: #64748b;
         font-size: 0.85rem;
+        font-family: 'Inter', sans-serif;
     }
 
     /* --- Tabs override --- */
     .stTabs [data-baseweb="tab-list"] {
         gap: 0;
-        background: #f1f5f9;
-        border-radius: 10px;
+        background: #1e293b;
+        border-radius: 8px;
         padding: 3px;
     }
     .stTabs [data-baseweb="tab"] {
-        border-radius: 8px;
+        border-radius: 6px;
         font-weight: 600;
         font-size: 0.85rem;
         padding: 8px 20px;
     }
     .stTabs [aria-selected="true"] {
-        background: #fff !important;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        background: #334155 !important;
     }
-
-    /* --- Confidence buttons --- */
-    .conf-btn-1, .conf-btn-2 { background: #fef2f2 !important; color: #dc2626 !important; border: 1px solid #fecaca !important; }
-    .conf-btn-3 { background: #fffbeb !important; color: #d97706 !important; border: 1px solid #fde68a !important; }
-    .conf-btn-4, .conf-btn-5 { background: #ecfdf5 !important; color: #059669 !important; border: 1px solid #86efac !important; }
 
     /* --- Flashcards --- */
-    .flashcard {
-        perspective: 1000px;
-        cursor: pointer;
-        margin-bottom: 10px;
-    }
-    .flashcard-inner {
-        position: relative;
-        min-height: 140px;
-        transition: transform 0.5s ease;
-        transform-style: preserve-3d;
-    }
-    .flashcard.flipped .flashcard-inner {
-        transform: rotateY(180deg);
-    }
     .flashcard-front, .flashcard-back {
-        position: absolute;
-        top: 0; left: 0; right: 0;
-        min-height: 140px;
-        backface-visibility: hidden;
-        border-radius: 14px;
+        border-radius: 10px;
         padding: 22px 24px;
         display: flex;
         align-items: center;
@@ -320,16 +277,14 @@ st.markdown("""
         line-height: 1.55;
     }
     .flashcard-front {
-        background: linear-gradient(145deg, #ffffff, #f8fafc);
-        border: 1px solid #e2e8f0;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-        color: #1e293b;
+        background: #1e293b;
+        border: 1px solid #334155;
+        color: #e2e8f0;
         font-weight: 600;
     }
     .flashcard-back {
-        background: linear-gradient(135deg, #6366f1, #8b5cf6);
+        background: #2563eb;
         color: white;
-        transform: rotateY(180deg);
         font-weight: 500;
     }
     .flashcard-badge {
@@ -346,8 +301,8 @@ st.markdown("""
     /* --- Scrollbar --- */
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -548,7 +503,7 @@ def render_dashboard():
             card_html = (
                 f'<div class="entry-card">'
                 f'{tags}'
-                f'<div style="margin-top:8px;font-size:0.95rem;font-weight:700;color:#0f172a;line-height:1.3;">{title}</div>'
+                f'<div style="margin-top:8px;font-size:0.95rem;font-weight:700;color:#f1f5f9;line-height:1.3;">{title}</div>'
                 f'{summary_html}'
                 f'<div style="margin-top:8px;font-size:0.72rem;color:#94a3b8;">{created} &middot; Reviewed {e.get("review_count", 0)}x</div>'
                 f'</div>'
