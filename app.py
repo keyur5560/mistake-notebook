@@ -166,26 +166,23 @@ def render_dashboard():
     entries = load_entries()
     due = get_due_for_review()
 
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.title("Mistake Notebook")
-        st.caption(f"USMLE Step 1 · {len(entries)} entries logged")
-    with col2:
-        st.write("")
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            if len(due) > 0:
-                if st.button(f"Review ({len(due)})", type="secondary", use_container_width=True):
-                    go("review")
-                    st.rerun()
-        with c2:
-            if st.button("Analytics", type="secondary", use_container_width=True):
-                go("analytics")
+    st.title("Mistake Notebook")
+    st.caption(f"USMLE Step 1 · {len(entries)} entries logged")
+
+    btn_cols = st.columns([1, 1, 1, 3])
+    with btn_cols[0]:
+        if len(due) > 0:
+            if st.button(f"Review ({len(due)})", type="secondary", use_container_width=True):
+                go("review")
                 st.rerun()
-        with c3:
-            if st.button("+ Log Mistake", type="primary", use_container_width=True):
-                go("new")
-                st.rerun()
+    with btn_cols[1]:
+        if st.button("Analytics", type="secondary", use_container_width=True):
+            go("analytics")
+            st.rerun()
+    with btn_cols[2]:
+        if st.button("+ Log Mistake", type="primary", use_container_width=True):
+            go("new")
+            st.rerun()
 
     # Stats
     if entries:
