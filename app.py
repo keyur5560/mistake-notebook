@@ -390,7 +390,7 @@ def render_flashcards(entry: dict, key_prefix: str = "fc"):
         return
 
     st.markdown("#### Flashcards")
-    st.caption("Click a card to flip it")
+    st.caption("Click 'Flip' to reveal the answer")
 
     for i, card in enumerate(cards):
         card_id = f"{key_prefix}_{entry['id']}_{i}"
@@ -399,30 +399,36 @@ def render_flashcards(entry: dict, key_prefix: str = "fc"):
             st.session_state[flipped_key] = False
 
         is_flipped = st.session_state[flipped_key]
-        flip_class = "flipped" if is_flipped else ""
 
-        st.markdown(f"""
-        <div class="flashcard {flip_class}" onclick="
-            this.classList.toggle('flipped');
-        ">
-            <div class="flashcard-inner">
-                <div class="flashcard-front">
-                    <div class="flashcard-badge">Q</div>
-                    <div>{card['front']}</div>
-                </div>
-                <div class="flashcard-back">
-                    <div class="flashcard-badge">A</div>
-                    <div>{card['back']}</div>
-                </div>
+        if not is_flipped:
+            st.markdown(f"""
+            <div class="flashcard-front" style="position:relative; min-height:auto;">
+                <div class="flashcard-badge">Q{i+1}</div>
+                <div>{card['front']}</div>
             </div>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
+            if st.button("Flip", key=f"flip_btn_{card_id}", use_container_width=True):
+                st.session_state[flipped_key] = True
+                st.rerun()
+        else:
+            st.markdown(f"""
+            <div class="flashcard-back" style="position:relative; min-height:auto; transform:none;">
+                <div class="flashcard-badge">A{i+1}</div>
+                <div>{card['back']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.button("Hide", key=f"hide_btn_{card_id}", use_container_width=True):
+                st.session_state[flipped_key] = False
+                st.rerun()
 
     if st.button("Regenerate Cards", key=f"{key_prefix}_regen_{entry['id']}"):
         with st.spinner("Regenerating..."):
             cards = generate_flashcards(entry, count=7)
             if cards:
                 st.session_state[fc_key] = cards
+                # Reset all flip states
+                for i in range(len(cards)):
+                    st.session_state.pop(f"flip_{key_prefix}_{entry['id']}_{i}", None)
                 st.rerun()
 
 
@@ -551,13 +557,13 @@ def render_dashboard():
             </div>
             """, unsafe_allow_html=True)
 
-            btn_cols = st.columns([2, 2, 8])
+            btn_cols = st.columns([3, 3, 6])
             with btn_cols[0]:
                 if st.button("View", key=f"view_{e['id']}", use_container_width=True):
                     go("view", e["id"])
                     st.rerun()
             with btn_cols[1]:
-                if st.button("Delete", key=f"del_{e['id']}", use_container_width=True):
+                if st.button("Del", key=f"del_{e['id']}", use_container_width=True):
                     delete_entry(sb, e["id"])
                     st.rerun()
     else:
