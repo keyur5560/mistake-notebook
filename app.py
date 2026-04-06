@@ -788,6 +788,33 @@ def render_view(entry_id):
     )
     st.markdown(tags, unsafe_allow_html=True)
 
+    # Check if needs analysis
+    needs_analysis = not entry.get("question_stem") and not entry.get("key_learning_point")
+
+    if needs_analysis and entry.get("extracted_text"):
+        st.warning("This entry hasn't been analyzed yet.")
+        if st.button("Analyze with Groq", type="primary", use_container_width=True, key="view_analyze"):
+            with st.spinner("Analyzing..."):
+                result = analyze_with_groq(
+                    entry["extracted_text"],
+                    wrong_answer=entry.get("wrong_answer", ""),
+                    why_wrong=entry.get("why_i_got_it_wrong", ""),
+                    mistake_type=entry.get("mistake_type", ""),
+                )
+                if result:
+                    update_data = {}
+                    for field in ["title", "subject", "organ_system", "question_stem", "correct_answer",
+                                  "why_i_got_it_wrong", "key_learning_point", "mnemonic_or_tip",
+                                  "topics_to_review", "high_yield_facts"]:
+                        if result.get(field):
+                            update_data[field] = result[field]
+                    if update_data:
+                        update_entry(sb, entry["id"], update_data)
+                        st.success("Analysis complete!")
+                        st.rerun()
+                else:
+                    st.error("Analysis failed. Try again later.")
+
     # Screenshot
     if entry.get("image_url"):
         st.markdown('<div class="section-box">', unsafe_allow_html=True)
@@ -798,6 +825,8 @@ def render_view(entry_id):
     # Question
     if entry.get("question_stem"):
         st.markdown(f'<div class="section-box"><div class="heading-xs">Question Stem</div>{entry["question_stem"]}</div>', unsafe_allow_html=True)
+    elif entry.get("extracted_text"):
+        st.markdown(f'<div class="section-box"><div class="heading-xs">Captured Text</div><pre style="white-space:pre-wrap;font-size:0.82rem;color:#94a3b8;margin:0;">{entry["extracted_text"][:1000]}</pre></div>', unsafe_allow_html=True)
 
     # Wrong / Correct
     col_a, col_b = st.columns(2)
