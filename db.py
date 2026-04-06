@@ -1,6 +1,8 @@
+from __future__ import annotations
 import os
 import uuid
 from datetime import datetime, timedelta
+from typing import Optional
 from supabase import create_client, Client
 
 INTERVALS = [1, 3, 7, 14, 30, 60]
