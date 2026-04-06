@@ -919,8 +919,16 @@ def render_review():
 
     entry = queue[idx]
 
+    # Check if this entry needs analysis (came from extension without Groq)
+    needs_analysis = not entry.get("question_stem") and not entry.get("key_learning_point")
+
     # Progress
     st.progress((idx + 1) / len(queue), text=f"{idx + 1} / {len(queue)}")
+
+    # Title
+    title = entry.get("title") or ""
+    if title:
+        st.markdown(f"### {title}")
 
     # Tags
     tags = (
@@ -929,11 +937,44 @@ def render_review():
     )
     st.markdown(tags, unsafe_allow_html=True)
 
+    # Screenshot
     if entry.get("image_url"):
         st.image(entry["image_url"], width=500)
 
+    # Question stem or extracted text fallback
     if entry.get("question_stem"):
         st.markdown(f'<div class="section-box"><div class="heading-xs">Question</div>{entry["question_stem"]}</div>', unsafe_allow_html=True)
+    elif entry.get("extracted_text"):
+        st.markdown(f'<div class="section-box"><div class="heading-xs">Captured Text</div><pre style="white-space:pre-wrap;font-size:0.82rem;color:#475569;margin:0;">{entry["extracted_text"][:1000]}</pre></div>', unsafe_allow_html=True)
+
+    # If entry hasn't been analyzed yet, offer to analyze
+    if needs_analysis and entry.get("extracted_text"):
+        st.warning("This entry hasn't been analyzed yet. Run analysis to fill in all fields.")
+        if st.button("Analyze Now", type="primary", use_container_width=True, key="rev_analyze"):
+            with st.spinner("Analyzing with Groq..."):
+                result = analyze_with_groq(
+                    entry["extracted_text"],
+                    wrong_answer=entry.get("wrong_answer", ""),
+                    why_wrong=entry.get("why_i_got_it_wrong", ""),
+                    mistake_type=entry.get("mistake_type", ""),
+                )
+                if result:
+                    update_data = {}
+                    for field in ["title", "subject", "organ_system", "question_stem", "correct_answer",
+                                  "why_i_got_it_wrong", "key_learning_point", "mnemonic_or_tip",
+                                  "topics_to_review", "high_yield_facts"]:
+                        if result.get(field):
+                            update_data[field] = result[field]
+                    if update_data:
+                        update_entry(sb, entry["id"], update_data)
+                        st.success("Analysis complete!")
+                        st.rerun()
+                else:
+                    st.error("Analysis failed. Try again later.")
+
+    # Wrong answer (show even before "Show Answer" so student sees what they picked)
+    if entry.get("wrong_answer") and not needs_analysis:
+        st.markdown(f'<div class="red-box"><div class="heading-xs" style="color:#ef4444">What I Picked</div>{entry["wrong_answer"]}</div>', unsafe_allow_html=True)
 
     if not st.session_state.review_show:
         if st.button("Show Answer", type="primary", use_container_width=True):
@@ -950,6 +991,13 @@ def render_review():
             st.markdown(f'<div class="green-box"><div class="heading-xs" style="color:#16a34a">Key Learning Point</div><strong>{entry["key_learning_point"]}</strong></div>', unsafe_allow_html=True)
         if entry.get("mnemonic_or_tip"):
             st.markdown(f'<div class="amber-box"><div class="heading-xs" style="color:#d97706">Mnemonic / Tip</div>{entry["mnemonic_or_tip"]}</div>', unsafe_allow_html=True)
+
+        # Topics to review
+        if entry.get("topics_to_review") and len(entry["topics_to_review"]) > 0:
+            st.markdown('<div class="blue-box"><div class="heading-xs" style="color:#2563eb">Topics to Review</div>', unsafe_allow_html=True)
+            for t in entry["topics_to_review"]:
+                st.markdown(f"- {t}")
+            st.markdown('</div>', unsafe_allow_html=True)
 
         # Flashcards in review
         st.markdown("---")
