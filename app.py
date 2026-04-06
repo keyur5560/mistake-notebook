@@ -537,13 +537,13 @@ def render_dashboard():
             </div>
             """, unsafe_allow_html=True)
 
-            btn_cols = st.columns([1, 1, 1, 1, 1, 1, 1, 1])
+            btn_cols = st.columns([2, 2, 8])
             with btn_cols[0]:
-                if st.button("View", key=f"view_{e['id']}"):
+                if st.button("View", key=f"view_{e['id']}", use_container_width=True):
                     go("view", e["id"])
                     st.rerun()
             with btn_cols[1]:
-                if st.button("Delete", key=f"del_{e['id']}"):
+                if st.button("Delete", key=f"del_{e['id']}", use_container_width=True):
                     delete_entry(sb, e["id"])
                     st.rerun()
     else:
