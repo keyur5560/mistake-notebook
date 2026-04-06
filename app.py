@@ -1,5 +1,6 @@
 import streamlit as st
-from datetime import datetime
+from datetime import datetime, timedelta
+from collections import Counter, defaultdict
 from db import (
     load_entries, load_entry, add_entry, update_entry, delete_entry,
     get_due_for_review, upload_image, get_next_review_date,
@@ -95,13 +96,17 @@ def render_dashboard():
         st.caption(f"USMLE Step 1 · {len(entries)} entries logged")
     with col2:
         st.write("")
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         with c1:
             if len(due) > 0:
                 if st.button(f"Review ({len(due)})", type="secondary", use_container_width=True):
                     go("review")
                     st.rerun()
         with c2:
+            if st.button("Analytics", type="secondary", use_container_width=True):
+                go("analytics")
+                st.rerun()
+        with c3:
             if st.button("+ Log Mistake", type="primary", use_container_width=True):
                 go("new")
                 st.rerun()
@@ -601,6 +606,275 @@ def render_review():
                     st.rerun()
 
 
+# ===================== ANALYTICS =====================
+def render_analytics():
+    entries = load_entries()
+
+    if st.button("< Back to Dashboard"):
+        go("dashboard")
+        st.rerun()
+
+    st.title("Analytics")
+
+    if len(entries) < 2:
+        st.info("Log at least 2 mistakes to see analytics.")
+        return
+
+    # ---- WEAKNESS IDENTIFICATION ----
+    st.markdown("## Weakness Identification")
+
+    # Subject x Mistake Type heatmap
+    st.markdown("#### Subject x Mistake Type Heatmap")
+    subjects_in_data = sorted(set(e["subject"] for e in entries))
+    mistakes_in_data = sorted(set(e["mistake_type"] for e in entries))
+    heatmap_data = []
+    for subj in subjects_in_data:
+        row = {}
+        for mt in mistakes_in_data:
+            row[mt] = sum(1 for e in entries if e["subject"] == subj and e["mistake_type"] == mt)
+        row["Subject"] = subj
+        heatmap_data.append(row)
+
+    import pandas as pd
+    df_heat = pd.DataFrame(heatmap_data).set_index("Subject")
+    # Show as colored dataframe
+    st.dataframe(df_heat.style.background_gradient(cmap="YlOrRd", axis=None), use_container_width=True)
+
+    col1, col2 = st.columns(2)
+
+    # Organ system radar (bar chart as proxy — Streamlit doesn't have native radar)
+    with col1:
+        st.markdown("#### Mistakes by Organ System")
+        system_counts = Counter(e["organ_system"] for e in entries)
+        df_sys = pd.DataFrame(
+            sorted(system_counts.items(), key=lambda x: x[1], reverse=True),
+            columns=["Organ System", "Mistakes"],
+        )
+        st.bar_chart(df_sys.set_index("Organ System"))
+
+    # Lowest confidence entries
+    with col2:
+        st.markdown("#### Lowest Confidence Entries")
+        reviewed = [e for e in entries if e.get("review_count", 0) > 0]
+        if reviewed:
+            low_conf = sorted(reviewed, key=lambda e: (e.get("confidence", 1), -e.get("review_count", 0)))[:5]
+            for e in low_conf:
+                label = e.get("key_learning_point") or e.get("question_stem") or "No notes"
+                conf = e.get("confidence", 1)
+                reviews = e.get("review_count", 0)
+                st.markdown(
+                    f'<div class="section-box">'
+                    f'<span class="tag tag-subject">{e["subject"]}</span>'
+                    f'<span class="tag tag-mistake">{e["mistake_type"]}</span><br>'
+                    f'<small>{label[:80]}{"..." if len(label) > 80 else ""}</small><br>'
+                    f'<small>Confidence: <strong>{conf}/5</strong> · Reviewed {reviews}x</small>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.caption("No reviewed entries yet.")
+
+    st.divider()
+
+    # ---- PROGRESS TRACKING ----
+    st.markdown("## Progress Tracking")
+
+    # Mistakes over time
+    st.markdown("#### Mistakes Logged Over Time")
+    dates = [e["created_at"][:10] for e in entries if e.get("created_at")]
+    date_counts = Counter(dates)
+    if date_counts:
+        all_dates = sorted(date_counts.keys())
+        # Accumulate by week
+        df_time = pd.DataFrame({"Date": all_dates, "Count": [date_counts[d] for d in all_dates]})
+        df_time["Date"] = pd.to_datetime(df_time["Date"])
+        df_weekly = df_time.set_index("Date").resample("W").sum()
+        if len(df_weekly) > 1:
+            st.line_chart(df_weekly)
+        else:
+            st.bar_chart(df_time.set_index("Date"))
+
+    # Confidence trend over reviews
+    st.markdown("#### Confidence Trend Over Reviews")
+    reviewed_with_date = [
+        e for e in entries
+        if e.get("last_reviewed_at") and e.get("confidence")
+    ]
+    if reviewed_with_date:
+        rev_sorted = sorted(reviewed_with_date, key=lambda e: e["last_reviewed_at"])
+        df_conf = pd.DataFrame({
+            "Date": pd.to_datetime([e["last_reviewed_at"][:10] for e in rev_sorted]),
+            "Confidence": [e["confidence"] for e in rev_sorted],
+        })
+        df_conf_avg = df_conf.set_index("Date").resample("W").mean()
+        if len(df_conf_avg.dropna()) > 1:
+            st.line_chart(df_conf_avg)
+        else:
+            avg = sum(e["confidence"] for e in rev_sorted) / len(rev_sorted)
+            st.metric("Average Confidence", f"{avg:.1f} / 5")
+    else:
+        st.caption("No reviews yet.")
+
+    # Review compliance
+    st.markdown("#### Review Compliance")
+    total_due_ever = len([e for e in entries if e.get("review_count", 0) > 0 or e.get("next_review_at")])
+    total_reviewed = len([e for e in entries if e.get("review_count", 0) > 0])
+    due_now = len(get_due_for_review())
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("Entries Reviewed At Least Once", f"{total_reviewed}/{len(entries)}")
+    with c2:
+        if total_due_ever > 0:
+            compliance = total_reviewed / total_due_ever * 100
+            st.metric("Review Rate", f"{compliance:.0f}%")
+        else:
+            st.metric("Review Rate", "N/A")
+    with c3:
+        st.metric("Currently Due", str(due_now))
+
+    st.divider()
+
+    # ---- PATTERN ANALYSIS ----
+    st.markdown("## Pattern Analysis")
+
+    # Mistake type breakdown by subject
+    st.markdown("#### Mistake Types by Subject")
+    for subj in subjects_in_data:
+        subj_entries = [e for e in entries if e["subject"] == subj]
+        if not subj_entries:
+            continue
+        mt_counts = Counter(e["mistake_type"] for e in subj_entries)
+        st.markdown(f"**{subj}** ({len(subj_entries)} mistakes)")
+        for mt, count in sorted(mt_counts.items(), key=lambda x: x[1], reverse=True):
+            pct = count / len(subj_entries)
+            col_a, col_b, col_c = st.columns([3, 6, 1])
+            with col_a:
+                st.caption(mt)
+            with col_b:
+                st.progress(pct)
+            with col_c:
+                st.caption(str(count))
+
+    # Time to mastery
+    st.markdown("#### Time to Mastery")
+    st.caption("Average reviews needed to reach confidence 4+ by subject")
+    mastered = [e for e in entries if e.get("confidence", 0) >= 4 and e.get("review_count", 0) > 0]
+    if mastered:
+        mastery_by_subj = defaultdict(list)
+        for e in mastered:
+            mastery_by_subj[e["subject"]].append(e["review_count"])
+        mastery_data = []
+        for subj, counts in sorted(mastery_by_subj.items()):
+            avg = sum(counts) / len(counts)
+            mastery_data.append({"Subject": subj, "Avg Reviews to Mastery": round(avg, 1), "Entries": len(counts)})
+        df_mastery = pd.DataFrame(mastery_data)
+        st.dataframe(df_mastery, use_container_width=True, hide_index=True)
+    else:
+        st.caption("No entries have reached confidence 4+ yet.")
+
+    # Repeat offenders
+    st.markdown("#### Repeat Offenders")
+    st.caption("Reviewed 3+ times but still low confidence")
+    repeat = [
+        e for e in entries
+        if e.get("review_count", 0) >= 3 and e.get("confidence", 1) < 4
+    ]
+    if repeat:
+        repeat = sorted(repeat, key=lambda e: (-e.get("review_count", 0), e.get("confidence", 1)))
+        for e in repeat:
+            label = e.get("key_learning_point") or e.get("question_stem") or "No notes"
+            st.markdown(
+                f'<div class="red-box">'
+                f'<span class="tag tag-subject">{e["subject"]}</span>'
+                f'<span class="tag tag-system">{e["organ_system"]}</span><br>'
+                f'<strong>{label[:100]}{"..." if len(label) > 100 else ""}</strong><br>'
+                f'<small>Reviewed <strong>{e["review_count"]}x</strong> · '
+                f'Confidence: <strong>{e.get("confidence", 1)}/5</strong></small>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+    else:
+        st.caption("No repeat offenders — keep it up!")
+
+    st.divider()
+
+    # ---- STUDY PLANNING ----
+    st.markdown("## Study Planning")
+
+    # Priority score: weighted combo of mistake count, low confidence, overdue reviews
+    st.markdown("#### Suggested Study Priorities")
+    st.caption("Weighted by mistake frequency, low confidence, and overdue reviews")
+    now = datetime.utcnow().isoformat()
+    subject_scores = defaultdict(lambda: {"mistakes": 0, "low_conf": 0, "overdue": 0, "total_conf": 0, "count": 0})
+    for e in entries:
+        s = e["subject"]
+        subject_scores[s]["mistakes"] += 1
+        subject_scores[s]["total_conf"] += e.get("confidence", 1)
+        subject_scores[s]["count"] += 1
+        if e.get("confidence", 1) < 3:
+            subject_scores[s]["low_conf"] += 1
+        if not e.get("next_review_at") or e["next_review_at"] <= now:
+            subject_scores[s]["overdue"] += 1
+
+    priority_data = []
+    for subj, scores in subject_scores.items():
+        avg_conf = scores["total_conf"] / scores["count"] if scores["count"] else 0
+        # Higher score = needs more attention
+        priority = (scores["mistakes"] * 1.0) + (scores["low_conf"] * 2.0) + (scores["overdue"] * 1.5)
+        priority_data.append({
+            "Subject": subj,
+            "Mistakes": scores["mistakes"],
+            "Low Confidence": scores["low_conf"],
+            "Overdue": scores["overdue"],
+            "Avg Confidence": round(avg_conf, 1),
+            "Priority Score": round(priority, 1),
+        })
+
+    priority_data.sort(key=lambda x: x["Priority Score"], reverse=True)
+    df_priority = pd.DataFrame(priority_data)
+    st.dataframe(df_priority, use_container_width=True, hide_index=True)
+
+    # Exam readiness by organ system
+    st.markdown("#### Exam Readiness by Organ System")
+    st.caption("Green = strong, Yellow = needs work, Red = weak")
+    system_scores = defaultdict(lambda: {"total_conf": 0, "count": 0, "mistakes": 0})
+    for e in entries:
+        os_ = e["organ_system"]
+        system_scores[os_]["mistakes"] += 1
+        system_scores[os_]["total_conf"] += e.get("confidence", 1)
+        system_scores[os_]["count"] += 1
+
+    readiness_data = []
+    for sys_name, scores in system_scores.items():
+        avg_conf = scores["total_conf"] / scores["count"] if scores["count"] else 0
+        readiness_data.append({
+            "Organ System": sys_name,
+            "Mistakes": scores["mistakes"],
+            "Avg Confidence": round(avg_conf, 1),
+        })
+    readiness_data.sort(key=lambda x: x["Avg Confidence"])
+
+    for item in readiness_data:
+        conf = item["Avg Confidence"]
+        if conf >= 4:
+            box_class = "green-box"
+            status = "Strong"
+        elif conf >= 2.5:
+            box_class = "amber-box"
+            status = "Needs Work"
+        else:
+            box_class = "red-box"
+            status = "Weak"
+        st.markdown(
+            f'<div class="{box_class}">'
+            f'<strong>{item["Organ System"]}</strong> — {status}<br>'
+            f'<small>{item["Mistakes"]} mistakes · Avg confidence: {conf}/5</small>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+
 # ===================== ROUTER =====================
 page = st.session_state.page
 
@@ -613,5 +887,7 @@ elif page == "edit":
     render_form(existing=entry)
 elif page == "view":
     render_view(st.session_state.view_id)
+elif page == "analytics":
+    render_analytics()
 elif page == "review":
     render_review()
