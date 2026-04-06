@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Mistake Notebook — UWorld Capture",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Capture UWorld questions you got wrong and send them to your Mistake Notebook",
   "permissions": ["activeTab", "storage"],
   "action": {
@@ -12,6 +12,9 @@
       "128": "icons/icon128.png"
     }
   },
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
       "matches": [
@@ -19,7 +22,8 @@
         "*://apps.uworld.com/*"
       ],
       "js": ["content.js"],
-      "css": ["content.css"]
+      "css": ["content.css"],
+      "run_at": "document_idle"
     }
   ],
   "icons": {

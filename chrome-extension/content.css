@@ -192,3 +192,52 @@
   white-space: pre-wrap;
   font-family: monospace;
 }
+
+/* Captured preview sections */
+.mn-captured-preview {
+  margin-bottom: 16px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.mn-preview-section {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 6px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.mn-preview-section.mn-preview-correct {
+  background: #ecfdf5;
+  border-color: #86efac;
+}
+
+.mn-preview-section.mn-preview-wrong {
+  background: #fef2f2;
+  border-color: #fca5a5;
+}
+
+.mn-preview-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+
+.mn-preview-text {
+  color: #334155;
+  white-space: pre-wrap;
+}
+
+/* Spinner for capture button */
+@keyframes mn-spin {
+  to { transform: rotate(360deg); }
+}
+.mn-spin {
+  animation: mn-spin 1s linear infinite;
+}

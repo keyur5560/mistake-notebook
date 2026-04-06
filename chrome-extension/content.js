@@ -1,5 +1,5 @@
 // Mistake Notebook — UWorld Content Script
-// Captures question text from the current page and lets the user log their mistake
+// Smart capture of question, answers, explanation from UWorld pages
 
 const MISTAKE_TYPES = [
   "Misread the question",
@@ -12,7 +12,7 @@ const MISTAKE_TYPES = [
   "Other",
 ];
 
-// --- Helpers ---
+// --- Toast ---
 
 function showToast(message, type = "success") {
   let toast = document.getElementById("mn-toast");
@@ -24,48 +24,197 @@ function showToast(message, type = "success") {
   toast.textContent = message;
   toast.className = type;
   requestAnimationFrame(() => toast.classList.add("show"));
-  setTimeout(() => {
-    toast.classList.remove("show");
-  }, 3000);
+  setTimeout(() => toast.classList.remove("show"), 3000);
 }
 
-function getPageText() {
-  // Try to grab meaningful text from the page
-  // UWorld uses various selectors — we grab the main content area
-  const selectors = [
-    ".question-stem",
-    ".question_text",
-    "[class*='question']",
-    "[class*='stem']",
-    ".explanation",
-    "[class*='explanation']",
-    "main",
-    ".content",
-    "article",
-  ];
+// --- Smart Page Scraping ---
 
-  for (const sel of selectors) {
-    const el = document.querySelector(sel);
-    if (el && el.innerText.trim().length > 30) {
-      return el.innerText.trim();
+function scrapeUWorld() {
+  const result = {
+    questionStem: "",
+    answerChoices: [],
+    selectedAnswer: "",
+    correctAnswer: "",
+    explanation: "",
+    fullText: "",
+  };
+
+  // Strategy: grab ALL text content from the page body, then try to
+  // intelligently parse it into sections. UWorld's DOM changes frequently,
+  // so we rely on text patterns rather than specific selectors.
+
+  const body = document.body.innerText || "";
+
+  // 1. Try to find answer choice patterns (A., B., C., etc.)
+  const choicePattern = /^[A-F][.)]\s*.+$/gm;
+  const choices = body.match(choicePattern) || [];
+  if (choices.length >= 2) {
+    result.answerChoices = choices.map((c) => c.trim());
+  }
+
+  // 2. Look for elements with visual indicators of correct/incorrect
+  //    UWorld typically uses green for correct, red/strikethrough for wrong
+  const allElements = document.querySelectorAll("*");
+  for (const el of allElements) {
+    const style = window.getComputedStyle(el);
+    const text = el.innerText?.trim();
+    if (!text || text.length < 2 || text.length > 300) continue;
+
+    const bg = style.backgroundColor;
+    const color = style.color;
+    const decoration = style.textDecoration;
+
+    // Green background or text often indicates correct answer
+    if (
+      (bg.includes("0, 128") || bg.includes("0, 153") || bg.includes("76, 175") ||
+       bg.includes("102, 187") || bg.includes("34, 197") || bg.includes("22, 163") ||
+       color.includes("0, 128") || color.includes("34, 197")) &&
+      text.match(/^[A-F][.)]\s/)
+    ) {
+      result.correctAnswer = text;
+    }
+
+    // Red or strikethrough often indicates the wrong selected answer
+    if (
+      (bg.includes("244, 67") || bg.includes("239, 83") || bg.includes("255, 82") ||
+       bg.includes("229, 57") || decoration.includes("line-through") ||
+       color.includes("244, 67") || color.includes("239, 83")) &&
+      text.match(/^[A-F][.)]\s/)
+    ) {
+      result.selectedAnswer = text;
     }
   }
 
-  // Fallback: grab selected text or visible body text
-  const selected = window.getSelection().toString().trim();
-  if (selected.length > 20) return selected;
+  // 3. Try to extract question stem — text before answer choices
+  if (result.answerChoices.length > 0) {
+    const firstChoice = result.answerChoices[0];
+    const choiceIdx = body.indexOf(firstChoice);
+    if (choiceIdx > 20) {
+      result.questionStem = body.substring(0, choiceIdx).trim();
+      // Clean up — remove navigation/header junk (usually short lines at the top)
+      const lines = result.questionStem.split("\n");
+      const meaningfulStart = lines.findIndex((l) => l.trim().length > 40);
+      if (meaningfulStart > 0) {
+        result.questionStem = lines.slice(meaningfulStart).join("\n").trim();
+      }
+    }
+  }
 
-  // Last resort: grab a chunk of body text
-  const body = document.body.innerText;
-  return body.substring(0, 3000).trim();
+  // 4. Try to extract explanation — text after "Explanation" or after answer choices
+  const explanationMarkers = [
+    "Educational Objective",
+    "Explanation",
+    "Bottom Line",
+    "The correct answer is",
+    "This question",
+  ];
+
+  for (const marker of explanationMarkers) {
+    const idx = body.indexOf(marker);
+    if (idx > 0) {
+      const explanationText = body.substring(idx, idx + 2000).trim();
+      if (explanationText.length > result.explanation.length) {
+        result.explanation = explanationText;
+      }
+    }
+  }
+
+  // 5. Also try specific DOM selectors that UWorld has used
+  const selectorAttempts = [
+    { sel: "[class*='explanat']", field: "explanation" },
+    { sel: "[class*='question-stem']", field: "questionStem" },
+    { sel: "[class*='questionStem']", field: "questionStem" },
+    { sel: "[class*='stem']", field: "questionStem" },
+    { sel: "[class*='objective']", field: "explanation" },
+  ];
+
+  for (const { sel, field } of selectorAttempts) {
+    const el = document.querySelector(sel);
+    if (el && el.innerText.trim().length > 30) {
+      if (!result[field] || el.innerText.trim().length > result[field].length) {
+        result[field] = el.innerText.trim();
+      }
+    }
+  }
+
+  // 6. Build full text combining everything
+  const parts = [];
+  if (result.questionStem) {
+    parts.push("=== QUESTION ===\n" + result.questionStem);
+  }
+  if (result.answerChoices.length > 0) {
+    parts.push("=== ANSWER CHOICES ===\n" + result.answerChoices.join("\n"));
+  }
+  if (result.selectedAnswer) {
+    parts.push("=== SELECTED (WRONG) ===\n" + result.selectedAnswer);
+  }
+  if (result.correctAnswer) {
+    parts.push("=== CORRECT ANSWER ===\n" + result.correctAnswer);
+  }
+  if (result.explanation) {
+    parts.push("=== EXPLANATION ===\n" + result.explanation);
+  }
+
+  if (parts.length > 0) {
+    result.fullText = parts.join("\n\n");
+  } else {
+    // Fallback: grab selected text or body
+    const selected = window.getSelection().toString().trim();
+    result.fullText = selected.length > 20 ? selected : body.substring(0, 4000).trim();
+  }
+
+  return result;
+}
+
+// --- Screenshot ---
+
+async function captureScreenshot() {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "capture-screenshot" });
+    return response?.dataUrl || "";
+  } catch (e) {
+    console.error("Screenshot capture failed:", e);
+    return "";
+  }
 }
 
 // --- Modal ---
 
-function createModal(capturedText) {
-  // Remove existing
+function createModal(scraped, screenshotDataUrl) {
   const existing = document.getElementById("mn-modal-overlay");
   if (existing) existing.remove();
+
+  // Pre-fill wrong answer from scraping
+  const wrongPrefill = scraped.selectedAnswer || "";
+  const correctPrefill = scraped.correctAnswer || "";
+
+  // Build preview sections
+  let previewHtml = "";
+  if (scraped.questionStem) {
+    const stem = scraped.questionStem.substring(0, 300) + (scraped.questionStem.length > 300 ? "..." : "");
+    previewHtml += `<div class="mn-preview-section"><div class="mn-preview-label">Question</div><div class="mn-preview-text">${stem}</div></div>`;
+  }
+  if (scraped.answerChoices.length > 0) {
+    previewHtml += `<div class="mn-preview-section"><div class="mn-preview-label">Choices</div><div class="mn-preview-text">${scraped.answerChoices.join("<br>")}</div></div>`;
+  }
+  if (correctPrefill) {
+    previewHtml += `<div class="mn-preview-section mn-preview-correct"><div class="mn-preview-label">Correct</div><div class="mn-preview-text">${correctPrefill}</div></div>`;
+  }
+  if (wrongPrefill) {
+    previewHtml += `<div class="mn-preview-section mn-preview-wrong"><div class="mn-preview-label">You Picked</div><div class="mn-preview-text">${wrongPrefill}</div></div>`;
+  }
+  if (scraped.explanation) {
+    const expl = scraped.explanation.substring(0, 300) + (scraped.explanation.length > 300 ? "..." : "");
+    previewHtml += `<div class="mn-preview-section"><div class="mn-preview-label">Explanation</div><div class="mn-preview-text">${expl}</div></div>`;
+  }
+
+  if (!previewHtml) {
+    previewHtml = `<div class="mn-preview-section"><div class="mn-preview-text">${scraped.fullText.substring(0, 500)}${scraped.fullText.length > 500 ? "..." : ""}</div></div>`;
+  }
+
+  const screenshotPreview = screenshotDataUrl
+    ? `<div class="mn-preview-section"><div class="mn-preview-label">Screenshot captured</div></div>`
+    : "";
 
   const overlay = document.createElement("div");
   overlay.id = "mn-modal-overlay";
@@ -73,11 +222,13 @@ function createModal(capturedText) {
     <div id="mn-modal">
       <h2>Log Mistake to Notebook</h2>
 
-      <label>Captured Text</label>
-      <div class="mn-extracted">${capturedText.substring(0, 500)}${capturedText.length > 500 ? "..." : ""}</div>
+      <div class="mn-captured-preview">
+        ${screenshotPreview}
+        ${previewHtml}
+      </div>
 
       <label>What I Picked (Wrong Answer)</label>
-      <textarea id="mn-wrong" rows="3" placeholder="Which option did you pick and why?"></textarea>
+      <textarea id="mn-wrong" rows="2" placeholder="Which option did you pick and why?">${wrongPrefill}</textarea>
 
       <label>Why I Got It Wrong</label>
       <textarea id="mn-why" rows="3" placeholder="What tripped you up?"></textarea>
@@ -97,7 +248,7 @@ function createModal(capturedText) {
   document.body.appendChild(overlay);
   requestAnimationFrame(() => overlay.classList.add("show"));
 
-  // Events
+  // Close handlers
   document.getElementById("mn-cancel").addEventListener("click", () => {
     overlay.classList.remove("show");
     setTimeout(() => overlay.remove(), 300);
@@ -110,6 +261,7 @@ function createModal(capturedText) {
     }
   });
 
+  // Save
   document.getElementById("mn-save").addEventListener("click", async () => {
     const wrongAnswer = document.getElementById("mn-wrong").value;
     const whyWrong = document.getElementById("mn-why").value;
@@ -121,10 +273,14 @@ function createModal(capturedText) {
 
     try {
       await saveToSupabase({
-        extracted_text: capturedText,
-        wrong_answer: wrongAnswer,
+        extracted_text: scraped.fullText,
+        question_stem: scraped.questionStem,
+        wrong_answer: wrongAnswer || scraped.selectedAnswer,
+        correct_answer: scraped.correctAnswer,
         why_i_got_it_wrong: whyWrong,
         mistake_type: mistakeType,
+        explanation: scraped.explanation,
+        screenshot: screenshotDataUrl,
       });
 
       overlay.classList.remove("show");
@@ -149,6 +305,35 @@ async function getConfig() {
   });
 }
 
+async function uploadScreenshot(config, dataUrl) {
+  if (!dataUrl) return "";
+
+  const match = dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
+  if (!match) return "";
+
+  const ext = match[1].split("/")[1];
+  const base64 = match[2];
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  const fileName = `${crypto.randomUUID()}.${ext}`;
+
+  const res = await fetch(
+    `${config.supabaseUrl}/storage/v1/object/screenshots/${fileName}`,
+    {
+      method: "POST",
+      headers: {
+        apikey: config.supabaseKey,
+        Authorization: `Bearer ${config.accessToken}`,
+        "Content-Type": match[1],
+      },
+      body: bytes,
+    }
+  );
+
+  if (!res.ok) return "";
+
+  return `${config.supabaseUrl}/storage/v1/object/public/screenshots/${fileName}`;
+}
+
 async function saveToSupabase(data) {
   const config = await getConfig();
   if (!config.supabaseUrl || !config.supabaseKey) {
@@ -158,18 +343,25 @@ async function saveToSupabase(data) {
     throw new Error("Please log in via the extension popup first.");
   }
 
+  // Upload screenshot if available
+  let imageUrl = "";
+  if (data.screenshot) {
+    imageUrl = await uploadScreenshot(config, data.screenshot);
+  }
+
   const row = {
     user_id: config.userId,
-    extracted_text: data.extracted_text,
-    wrong_answer: data.wrong_answer,
-    why_i_got_it_wrong: data.why_i_got_it_wrong,
-    mistake_type: data.mistake_type,
-    subject: "Pathology", // default — will be updated by Groq analysis in the app
+    image_url: imageUrl,
+    extracted_text: data.extracted_text || "",
+    question_stem: data.question_stem || "",
+    wrong_answer: data.wrong_answer || "",
+    correct_answer: data.correct_answer || "",
+    why_i_got_it_wrong: data.why_i_got_it_wrong || "",
+    mistake_type: data.mistake_type || "Other",
+    subject: "Pathology",
     organ_system: "Multisystem & General",
     review_count: 0,
     confidence: 1,
-    question_stem: "",
-    correct_answer: "",
     key_learning_point: "",
     mnemonic_or_tip: "",
     topics_to_review: [],
@@ -209,13 +401,39 @@ function injectCaptureButton() {
     Log Mistake
   `;
 
-  btn.addEventListener("click", () => {
-    const text = getPageText();
-    if (text.length < 10) {
-      showToast("Not enough text found on page. Try selecting text first.", "error");
-      return;
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    btn.innerHTML = `
+      <svg class="mn-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+      </svg>
+      Capturing...
+    `;
+
+    try {
+      // Capture screenshot and scrape page in parallel
+      const [screenshot, scraped] = await Promise.all([
+        captureScreenshot(),
+        Promise.resolve(scrapeUWorld()),
+      ]);
+
+      if (scraped.fullText.length < 10 && !screenshot) {
+        showToast("Not enough content found. Try on the question review page.", "error");
+        return;
+      }
+
+      createModal(scraped, screenshot);
+    } catch (e) {
+      showToast("Capture failed: " + e.message, "error");
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+        Log Mistake
+      `;
     }
-    createModal(text);
   });
 
   document.body.appendChild(btn);
@@ -227,3 +445,11 @@ if (document.readyState === "loading") {
 } else {
   injectCaptureButton();
 }
+
+// Re-inject after SPA navigation (UWorld is a single-page app)
+const observer = new MutationObserver(() => {
+  if (!document.getElementById("mn-capture-btn")) {
+    injectCaptureButton();
+  }
+});
+observer.observe(document.body, { childList: true, subtree: true });
