@@ -169,7 +169,7 @@ def render_dashboard():
     st.title("Mistake Notebook")
     st.caption(f"USMLE Step 1 · {len(entries)} entries logged")
 
-    btn_cols = st.columns([1, 1, 1, 3])
+    btn_cols = st.columns([1, 1, 1.3, 2.7])
     with btn_cols[0]:
         if len(due) > 0:
             if st.button(f"Review ({len(due)})", type="secondary", use_container_width=True):
@@ -180,7 +180,7 @@ def render_dashboard():
             go("analytics")
             st.rerun()
     with btn_cols[2]:
-        if st.button("+ Log Mistake", type="primary", use_container_width=True):
+        if st.button("+ Log", type="primary", use_container_width=True):
             go("new")
             st.rerun()
 
