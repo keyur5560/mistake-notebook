@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 340px;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: white;
+      padding: 20px;
+      text-align: center;
+    }
+    .header h1 { font-size: 1.1rem; font-weight: 700; }
+    .header p { font-size: 0.75rem; opacity: 0.8; margin-top: 4px; }
+
+    .body { padding: 16px; }
+
+    .status {
+      padding: 12px 16px;
+      border-radius: 10px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .status.connected { background: #ecfdf5; color: #065f46; border: 1px solid #86efac; }
+    .status.disconnected { background: #fef2f2; color: #991b1b; border: 1px solid #fca5a5; }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+    }
+    .status.connected .status-dot { background: #22c55e; }
+    .status.disconnected .status-dot { background: #ef4444; }
+
+    label {
+      display: block;
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: #475569;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      margin-bottom: 12px;
+      font-family: inherit;
+    }
+    input:focus {
+      outline: none;
+      border-color: #818cf8;
+      box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
+    }
+
+    .section-title {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: #334155;
+      margin-bottom: 10px;
+      margin-top: 6px;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 11px;
+      border: none;
+      border-radius: 10px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      margin-bottom: 8px;
+      transition: all 0.15s ease;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: white;
+    }
+    .btn-primary:hover { box-shadow: 0 4px 14px rgba(99,102,241,0.3); }
+    .btn-secondary {
+      background: #f1f5f9;
+      color: #475569;
+    }
+    .btn-danger {
+      background: #fef2f2;
+      color: #dc2626;
+    }
+
+    .divider {
+      height: 1px;
+      background: #e2e8f0;
+      margin: 16px 0;
+    }
+
+    .footer {
+      text-align: center;
+      font-size: 0.7rem;
+      color: #94a3b8;
+      padding: 8px 16px 16px;
+    }
+
+    #auth-section, #config-section { display: none; }
+    .show { display: block !important; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Mistake Notebook</h1>
+    <p>UWorld Capture Extension</p>
+  </div>
+
+  <div class="body">
+    <!-- Status -->
+    <div id="status" class="status disconnected">
+      <div class="status-dot"></div>
+      <span id="status-text">Not connected</span>
+    </div>
+
+    <!-- Config section -->
+    <div id="config-section" class="show">
+      <div class="section-title">Supabase Connection</div>
+      <label>Project URL</label>
+      <input type="text" id="supabase-url" placeholder="https://xxxxx.supabase.co">
+      <label>Anon Key</label>
+      <input type="text" id="supabase-key" placeholder="eyJhbG...">
+      <button class="btn btn-primary" id="save-config">Save Connection</button>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Auth section -->
+    <div id="auth-section">
+      <div class="section-title">Account</div>
+      <div id="logged-out">
+        <label>Email</label>
+        <input type="email" id="email" placeholder="you@example.com">
+        <label>Password</label>
+        <input type="password" id="password" placeholder="Password">
+        <button class="btn btn-primary" id="login-btn">Log In</button>
+      </div>
+      <div id="logged-in" style="display:none;">
+        <div class="status connected">
+          <div class="status-dot"></div>
+          <span id="user-email">user@example.com</span>
+        </div>
+        <button class="btn btn-danger" id="logout-btn">Log Out</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    When on UWorld, click the floating "Log Mistake" button to capture.
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

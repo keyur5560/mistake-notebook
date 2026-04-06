@@ -1,0 +1,194 @@
+/* Floating capture button */
+#mn-capture-btn {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 999999;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: white;
+  border: none;
+  border-radius: 14px;
+  padding: 12px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#mn-capture-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(99, 102, 241, 0.5);
+}
+
+#mn-capture-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Toast notification */
+#mn-toast {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  z-index: 9999999;
+  padding: 14px 22px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  transition: all 0.3s ease;
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+#mn-toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+#mn-toast.success {
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #86efac;
+}
+
+#mn-toast.error {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+}
+
+#mn-toast.info {
+  background: #eff6ff;
+  color: #1e40af;
+  border: 1px solid #93c5fd;
+}
+
+/* Modal overlay */
+#mn-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 9999998;
+  display: none;
+  justify-content: center;
+  align-items: center;
+  backdrop-filter: blur(4px);
+}
+
+#mn-modal-overlay.show {
+  display: flex;
+}
+
+#mn-modal {
+  background: white;
+  border-radius: 20px;
+  padding: 28px;
+  width: 480px;
+  max-width: 90vw;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+#mn-modal h2 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 16px 0;
+}
+
+#mn-modal label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+#mn-modal textarea,
+#mn-modal select {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 0.88rem;
+  font-family: inherit;
+  margin-bottom: 14px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+#mn-modal textarea:focus,
+#mn-modal select:focus {
+  outline: none;
+  border-color: #818cf8;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+#mn-modal .mn-btn-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+#mn-modal .mn-btn {
+  flex: 1;
+  padding: 12px;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+#mn-modal .mn-btn-primary {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: white;
+}
+
+#mn-modal .mn-btn-primary:hover {
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.3);
+  transform: translateY(-1px);
+}
+
+#mn-modal .mn-btn-secondary {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+#mn-modal .mn-btn-secondary:hover {
+  background: #e2e8f0;
+}
+
+#mn-modal .mn-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+#mn-modal .mn-extracted {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 0.8rem;
+  color: #64748b;
+  max-height: 120px;
+  overflow-y: auto;
+  margin-bottom: 14px;
+  white-space: pre-wrap;
+  font-family: monospace;
+}
