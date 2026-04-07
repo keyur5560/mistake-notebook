@@ -272,7 +272,7 @@ function createModal(scraped, screenshotDataUrl) {
     saveBtn.textContent = "Saving...";
 
     try {
-      await saveToSupabase({
+      const saveData = {
         extracted_text: scraped.fullText,
         question_stem: scraped.questionStem,
         wrong_answer: wrongAnswer || scraped.selectedAnswer,
@@ -281,11 +281,17 @@ function createModal(scraped, screenshotDataUrl) {
         mistake_type: mistakeType,
         explanation: scraped.explanation,
         screenshot: screenshotDataUrl,
-      });
+      };
+      const saved = await saveToSupabase(saveData);
 
       overlay.classList.remove("show");
       setTimeout(() => overlay.remove(), 300);
-      showToast("Saved to Mistake Notebook!", "success");
+      showToast("Saved! Analyzing...", "success");
+
+      // Run Groq analysis in background
+      if (saved?.[0]?.id) {
+        analyzeWithGroq(saved[0].id, saveData);
+      }
     } catch (err) {
       saveBtn.disabled = false;
       saveBtn.textContent = "Save & Analyze";
@@ -299,7 +305,7 @@ function createModal(scraped, screenshotDataUrl) {
 async function getConfig() {
   return new Promise((resolve) => {
     chrome.storage.sync.get(
-      ["supabaseUrl", "supabaseKey", "accessToken", "userId"],
+      ["supabaseUrl", "supabaseKey", "groqKey", "accessToken", "userId"],
       resolve
     );
   });
@@ -387,6 +393,108 @@ async function saveToSupabase(data) {
   return res.json();
 }
 
+// --- Groq Analysis ---
+
+const GROQ_SYSTEM_PROMPT = `You are a USMLE Step 1 study assistant. A student will give you:
+1. Text from a medical question they got wrong (likely UWorld)
+2. What answer they picked (wrong) and why they think they got it wrong
+
+Use all of this to provide a thorough analysis.
+
+Return a JSON object with these fields:
+
+{
+  "title": "A short, descriptive title for this question (5-10 words)",
+  "subject": "One of: Anatomy, Biochemistry, Biostatistics & Epidemiology, Behavioral Science, Immunology, Microbiology, Pathology, Pharmacology, Physiology",
+  "organ_system": "One of: Cardiovascular, Endocrine, Gastrointestinal, Hematology & Oncology, Musculoskeletal, Neurology & Psychiatry, Renal, Reproductive, Respiratory, Multisystem & General",
+  "question_stem": "The core clinical vignette / question stem, cleaned up and formatted clearly",
+  "correct_answer": "The correct answer with a clear explanation of WHY it's correct. Include relevant pathophysiology.",
+  "why_i_got_it_wrong": "Based on what the student told you about their reasoning, give a targeted analysis of their specific mistake",
+  "key_learning_point": "The single most important concept to remember. Be specific and high-yield.",
+  "mnemonic_or_tip": "A helpful mnemonic, memory trick, or study tip related to this concept.",
+  "topics_to_review": ["List of 3-5 specific, actionable topics"],
+  "high_yield_facts": ["List of 2-4 related high-yield facts"]
+}
+
+Important:
+- Focus your analysis on the student's SPECIFIC mistake — don't be generic
+- Be specific and clinically relevant — write as if teaching a student
+- Return ONLY valid JSON, no markdown or other formatting`;
+
+async function analyzeWithGroq(entryId, data) {
+  const config = await getConfig();
+  if (!config.groqKey) return; // no API key, skip silently
+
+  const extractedText = data.extracted_text || "";
+  if (extractedText.length < 10) return;
+
+  const parts = [
+    "Here is the text from my UWorld question:",
+    `\n---\n${extractedText}\n---\n`,
+  ];
+  if (data.wrong_answer) parts.push(`**What I picked (wrong):** ${data.wrong_answer}`);
+  if (data.why_i_got_it_wrong) parts.push(`**Why I think I got it wrong:** ${data.why_i_got_it_wrong}`);
+  if (data.mistake_type) parts.push(`**Type of mistake:** ${data.mistake_type}`);
+  parts.push("\nPlease analyze this and fill out all the study fields.");
+
+  try {
+    const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.groqKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: GROQ_SYSTEM_PROMPT },
+          { role: "user", content: parts.join("\n") },
+        ],
+        temperature: 0.3,
+      }),
+    });
+
+    if (!groqRes.ok) return;
+
+    const groqData = await groqRes.json();
+    const content = groqData.choices?.[0]?.message?.content;
+    if (!content) return;
+
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return;
+
+    const result = JSON.parse(jsonMatch[0]);
+
+    // Update the Supabase record with analysis results
+    const updateFields = {};
+    const fieldMap = [
+      "title", "subject", "organ_system", "question_stem", "correct_answer",
+      "why_i_got_it_wrong", "key_learning_point", "mnemonic_or_tip",
+      "topics_to_review", "high_yield_facts",
+    ];
+    for (const f of fieldMap) {
+      if (result[f]) updateFields[f] = result[f];
+    }
+
+    if (Object.keys(updateFields).length === 0) return;
+
+    await fetch(`${config.supabaseUrl}/rest/v1/mistakes?id=eq.${entryId}`, {
+      method: "PATCH",
+      headers: {
+        apikey: config.supabaseKey,
+        Authorization: `Bearer ${config.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(updateFields),
+    });
+
+    showToast("Analysis complete!", "success");
+  } catch (e) {
+    console.error("Groq analysis error:", e);
+    // Don't show error toast — the save already succeeded
+  }
+}
+
 // --- Floating Button ---
 
 function injectCaptureButton() {
@@ -466,7 +574,7 @@ async function checkForWrongAnswer() {
     // Silent mode: save immediately with default reason, no popup
     try {
       const screenshot = await captureScreenshot();
-      await saveToSupabase({
+      const saveData = {
         extracted_text: scraped.fullText,
         question_stem: scraped.questionStem,
         wrong_answer: scraped.selectedAnswer,
@@ -475,8 +583,12 @@ async function checkForWrongAnswer() {
         mistake_type: "Didn't know the concept",
         explanation: scraped.explanation,
         screenshot,
-      });
-      showToast("Mistake auto-logged (silent)", "info");
+      };
+      const saved = await saveToSupabase(saveData);
+      showToast("Mistake auto-logged — analyzing...", "info");
+      if (saved?.[0]?.id) {
+        analyzeWithGroq(saved[0].id, saveData);
+      }
     } catch (e) {
       showToast("Auto-log failed: " + e.message, "error");
     }

@@ -27,7 +27,7 @@ silentToggle.addEventListener("change", () => {
 
 // --- Load saved state ---
 chrome.storage.sync.get(
-  ["supabaseUrl", "supabaseKey", "accessToken", "userId", "userEmail", "autoCapture", "silentMode"],
+  ["supabaseUrl", "supabaseKey", "groqKey", "accessToken", "userId", "userEmail", "autoCapture", "silentMode"],
   (data) => {
     // Restore toggle state
     autoCaptureToggle.checked = !!data.autoCapture;
@@ -38,6 +38,9 @@ chrome.storage.sync.get(
     }
     if (data.supabaseKey) {
       document.getElementById("supabase-key").value = data.supabaseKey;
+    }
+    if (data.groqKey) {
+      document.getElementById("groq-key").value = data.groqKey;
     }
 
     if (data.supabaseUrl && data.supabaseKey) {
@@ -58,13 +61,14 @@ chrome.storage.sync.get(
 document.getElementById("save-config").addEventListener("click", () => {
   const url = document.getElementById("supabase-url").value.trim();
   const key = document.getElementById("supabase-key").value.trim();
+  const groqKey = document.getElementById("groq-key").value.trim();
 
   if (!url || !key) {
-    updateStatus("disconnected", "Please fill in both fields");
+    updateStatus("disconnected", "Please fill in URL and Anon Key");
     return;
   }
 
-  chrome.storage.sync.set({ supabaseUrl: url, supabaseKey: key }, () => {
+  chrome.storage.sync.set({ supabaseUrl: url, supabaseKey: key, groqKey }, () => {
     updateStatus("connected", "Connected to Supabase");
     authSection.classList.add("show");
     showLoggedOut();
