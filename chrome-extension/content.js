@@ -625,9 +625,16 @@ if (document.readyState === "loading") {
   injectCaptureButton();
 }
 
+// Debounced check — wait for DOM to settle after mutations
+let checkTimer = null;
+function debouncedCheck() {
+  clearTimeout(checkTimer);
+  checkTimer = setTimeout(() => checkForWrongAnswer(), 1500);
+}
+
 // Watch for SPA navigation + answer result appearing
 const observer = new MutationObserver(() => {
   onPageChange();
-  checkForWrongAnswer();
+  debouncedCheck();
 });
 observer.observe(document.body, { childList: true, subtree: true });
