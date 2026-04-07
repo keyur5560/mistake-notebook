@@ -439,6 +439,73 @@ function injectCaptureButton() {
   document.body.appendChild(btn);
 }
 
+// --- Auto-Capture Detection ---
+
+let autoCapturePending = false; // prevent duplicate triggers
+
+function getSettings() {
+  return new Promise((resolve) => {
+    chrome.storage.sync.get(["autoCapture", "silentMode"], resolve);
+  });
+}
+
+async function checkForWrongAnswer() {
+  if (autoCapturePending) return;
+  if (document.getElementById("mn-modal-overlay")) return; // modal already open
+
+  const settings = await getSettings();
+  if (!settings.autoCapture) return;
+
+  const scraped = scrapeUWorld();
+  // Only trigger if we detected both a wrong and correct answer (i.e., user got it wrong)
+  if (!scraped.selectedAnswer || !scraped.correctAnswer) return;
+
+  autoCapturePending = true;
+
+  if (settings.silentMode) {
+    // Silent mode: save immediately with default reason, no popup
+    try {
+      const screenshot = await captureScreenshot();
+      await saveToSupabase({
+        extracted_text: scraped.fullText,
+        question_stem: scraped.questionStem,
+        wrong_answer: scraped.selectedAnswer,
+        correct_answer: scraped.correctAnswer,
+        why_i_got_it_wrong: "",
+        mistake_type: "Didn't know the concept",
+        explanation: scraped.explanation,
+        screenshot,
+      });
+      showToast("Mistake auto-logged (silent)", "info");
+    } catch (e) {
+      showToast("Auto-log failed: " + e.message, "error");
+    }
+  } else {
+    // Auto-capture: show the modal
+    try {
+      const screenshot = await captureScreenshot();
+      createModal(scraped, screenshot);
+    } catch (e) {
+      showToast("Auto-capture failed: " + e.message, "error");
+    }
+  }
+}
+
+// Reset pending flag on URL/page change so next question can trigger
+let lastUrl = location.href;
+
+function onPageChange() {
+  if (location.href !== lastUrl) {
+    lastUrl = location.href;
+    autoCapturePending = false;
+  }
+  if (!document.getElementById("mn-capture-btn")) {
+    injectCaptureButton();
+  }
+}
+
+// --- Init ---
+
 // Inject when page loads
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", injectCaptureButton);
@@ -446,10 +513,9 @@ if (document.readyState === "loading") {
   injectCaptureButton();
 }
 
-// Re-inject after SPA navigation (UWorld is a single-page app)
+// Watch for SPA navigation + answer result appearing
 const observer = new MutationObserver(() => {
-  if (!document.getElementById("mn-capture-btn")) {
-    injectCaptureButton();
-  }
+  onPageChange();
+  checkForWrongAnswer();
 });
 observer.observe(document.body, { childList: true, subtree: true });

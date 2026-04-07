@@ -114,6 +114,55 @@
 
     #auth-section { display: none; }
     .show { display: block !important; }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+    }
+    .toggle-row + .toggle-row { border-top: 1px solid #f1f5f9; }
+    .toggle-label {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #334155;
+    }
+    .toggle-desc {
+      font-size: 0.7rem;
+      color: #94a3b8;
+      margin-top: 2px;
+    }
+    .toggle-switch {
+      position: relative;
+      width: 40px; height: 22px;
+      flex-shrink: 0;
+      margin-left: 12px;
+    }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute; inset: 0;
+      background: #cbd5e1;
+      border-radius: 22px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle-slider::before {
+      content: "";
+      position: absolute;
+      width: 16px; height: 16px;
+      left: 3px; bottom: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-slider {
+      background: #6366f1;
+    }
+    .toggle-switch input:checked + .toggle-slider::before {
+      transform: translateX(18px);
+    }
+    #silent-row { opacity: 0.5; pointer-events: none; }
+    #silent-row.enabled { opacity: 1; pointer-events: auto; }
   </style>
 </head>
 <body>
@@ -137,6 +186,33 @@
       <label>Anon Key</label>
       <input type="text" id="supabase-key" placeholder="eyJhbG...">
       <button class="btn btn-primary" id="save-config">Save Connection</button>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Settings section -->
+    <div id="settings-section">
+      <div class="section-title">Capture Settings</div>
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">Auto-Capture</div>
+          <div class="toggle-desc">Prompt to log when you get a question wrong</div>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="auto-capture-toggle">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="toggle-row" id="silent-row">
+        <div>
+          <div class="toggle-label">Silent Mode</div>
+          <div class="toggle-desc">Auto-log without popup (reason: "Didn't know")</div>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="silent-toggle">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
     </div>
 
     <div class="divider"></div>

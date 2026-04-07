@@ -6,11 +6,33 @@ const authSection = document.getElementById("auth-section");
 const loggedOut = document.getElementById("logged-out");
 const loggedIn = document.getElementById("logged-in");
 const userEmailEl = document.getElementById("user-email");
+const autoCaptureToggle = document.getElementById("auto-capture-toggle");
+const silentToggle = document.getElementById("silent-toggle");
+const silentRow = document.getElementById("silent-row");
+
+// --- Settings toggles ---
+autoCaptureToggle.addEventListener("change", () => {
+  const on = autoCaptureToggle.checked;
+  chrome.storage.sync.set({ autoCapture: on });
+  silentRow.classList.toggle("enabled", on);
+  if (!on) {
+    silentToggle.checked = false;
+    chrome.storage.sync.set({ silentMode: false });
+  }
+});
+
+silentToggle.addEventListener("change", () => {
+  chrome.storage.sync.set({ silentMode: silentToggle.checked });
+});
 
 // --- Load saved state ---
 chrome.storage.sync.get(
-  ["supabaseUrl", "supabaseKey", "accessToken", "userId", "userEmail"],
+  ["supabaseUrl", "supabaseKey", "accessToken", "userId", "userEmail", "autoCapture", "silentMode"],
   (data) => {
+    // Restore toggle state
+    autoCaptureToggle.checked = !!data.autoCapture;
+    silentToggle.checked = !!data.silentMode;
+    silentRow.classList.toggle("enabled", !!data.autoCapture);
     if (data.supabaseUrl) {
       document.getElementById("supabase-url").value = data.supabaseUrl;
     }
