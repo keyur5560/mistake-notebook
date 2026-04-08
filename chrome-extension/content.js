@@ -305,10 +305,65 @@ function createModal(scraped, screenshotDataUrl) {
 async function getConfig() {
   return new Promise((resolve) => {
     chrome.storage.sync.get(
-      ["supabaseUrl", "supabaseKey", "groqKey", "accessToken", "userId"],
+      ["supabaseUrl", "supabaseKey", "groqKey", "accessToken", "refreshToken", "userId"],
       resolve
     );
   });
+}
+
+async function refreshAccessToken(config) {
+  if (!config.refreshToken) return null;
+
+  try {
+    const res = await fetch(
+      `${config.supabaseUrl}/auth/v1/token?grant_type=refresh_token`,
+      {
+        method: "POST",
+        headers: {
+          apikey: config.supabaseKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ refresh_token: config.refreshToken }),
+      }
+    );
+
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    // Save new tokens
+    await new Promise((resolve) => {
+      chrome.storage.sync.set(
+        {
+          accessToken: data.access_token,
+          refreshToken: data.refresh_token,
+        },
+        resolve
+      );
+    });
+
+    return data.access_token;
+  } catch (e) {
+    console.error("Token refresh failed:", e);
+    return null;
+  }
+}
+
+async function getValidConfig() {
+  const config = await getConfig();
+  if (!config.supabaseUrl || !config.supabaseKey) {
+    throw new Error("Please configure Supabase in the extension popup first.");
+  }
+  if (!config.accessToken) {
+    throw new Error("Please log in via the extension popup first.");
+  }
+
+  // Always try to refresh the token to keep it fresh
+  const newToken = await refreshAccessToken(config);
+  if (newToken) {
+    config.accessToken = newToken;
+  }
+
+  return config;
 }
 
 async function uploadScreenshot(config, dataUrl) {
@@ -341,13 +396,7 @@ async function uploadScreenshot(config, dataUrl) {
 }
 
 async function saveToSupabase(data) {
-  const config = await getConfig();
-  if (!config.supabaseUrl || !config.supabaseKey) {
-    throw new Error("Please configure Supabase in the extension popup first.");
-  }
-  if (!config.accessToken) {
-    throw new Error("Please log in via the extension popup first.");
-  }
+  const config = await getValidConfig();
 
   // Upload screenshot if available
   let imageUrl = "";

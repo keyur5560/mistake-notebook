@@ -109,6 +109,7 @@ document.getElementById("login-btn").addEventListener("click", async () => {
     chrome.storage.sync.set(
       {
         accessToken: data.access_token,
+        refreshToken: data.refresh_token,
         userId: data.user.id,
         userEmail: data.user.email,
       },
@@ -123,7 +124,7 @@ document.getElementById("login-btn").addEventListener("click", async () => {
 
 // --- Logout ---
 document.getElementById("logout-btn").addEventListener("click", () => {
-  chrome.storage.sync.remove(["accessToken", "userId", "userEmail"], () => {
+  chrome.storage.sync.remove(["accessToken", "refreshToken", "userId", "userEmail"], () => {
     showLoggedOut();
     updateStatus("connected", "Logged out");
   });
