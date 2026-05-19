@@ -41,6 +41,31 @@ def get_authed_supabase(access_token: str) -> Client:
     return sb
 
 
+def refresh_supabase_token(refresh_token: str):
+    """Exchange a refresh token for a new (access_token, refresh_token) pair.
+
+    Returns (None, None) on failure so callers can prompt re-login.
+    """
+    import requests
+    url = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
+    key = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
+    if not url or not key or not refresh_token:
+        return None, None
+    try:
+        res = requests.post(
+            f"{url}/auth/v1/token?grant_type=refresh_token",
+            headers={"apikey": key, "Content-Type": "application/json"},
+            json={"refresh_token": refresh_token},
+            timeout=10,
+        )
+        if res.status_code != 200:
+            return None, None
+        data = res.json()
+        return data.get("access_token"), data.get("refresh_token")
+    except Exception:
+        return None, None
+
+
 def get_next_review_date(review_count: int, confidence: int) -> str:
     idx = min(review_count, len(INTERVALS) - 1)
     if confidence >= 4:

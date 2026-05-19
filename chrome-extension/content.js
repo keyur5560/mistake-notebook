@@ -429,11 +429,27 @@ function createModal(scraped, screenshotDataUrl) {
     ? `<div class="mn-preview-section"><div class="mn-preview-label">Screenshot captured</div></div>`
     : "";
 
+  // Warn loudly if the scrape didn't find real question content. The user
+  // can still save (escape hatch) but it'll be obvious that something is off.
+  const stemLen = (scraped.questionStem || "").trim().length;
+  const hasAnyAnswer = !!(scraped.selectedAnswer || scraped.correctAnswer);
+  const warningHtml =
+    stemLen < 30 || !hasAnyAnswer
+      ? `<div class="mn-modal-warning">
+           ⚠️ <strong>No question content detected.</strong> The scraper
+           didn't find a question stem or both answers. Are you on the
+           item-review screen? If you save anyway, the entry will be mostly
+           empty.
+         </div>`
+      : "";
+
   const overlay = document.createElement("div");
   overlay.id = "mn-modal-overlay";
   overlay.innerHTML = `
     <div id="mn-modal">
       <h2>Log Mistake to Notebook</h2>
+
+      ${warningHtml}
 
       <div class="mn-captured-preview">
         ${screenshotPreview}

@@ -1,10 +1,12 @@
 import streamlit as st
+import time
+import jwt
 from datetime import datetime, timedelta
 from collections import Counter, defaultdict
 from db import (
     load_entries, load_entry, add_entry, update_entry, delete_entry,
     get_due_for_review, upload_image, get_next_review_date,
-    get_supabase, get_authed_supabase,
+    get_supabase, get_authed_supabase, refresh_supabase_token,
     USMLE_SUBJECTS, ORGAN_SYSTEMS, MISTAKE_TYPES,
 )
 from io import BytesIO
@@ -45,6 +47,7 @@ def render_login():
             try:
                 res = sb.auth.sign_in_with_password({"email": email, "password": password})
                 st.session_state.access_token = res.session.access_token
+                st.session_state.refresh_token = res.session.refresh_token
                 st.session_state.user_id = res.user.id
                 st.session_state.user_email = res.user.email
                 save_auth_cookies()
@@ -68,6 +71,7 @@ def render_login():
                 res = sb.auth.sign_up({"email": new_email, "password": new_password})
                 if res.user and res.session:
                     st.session_state.access_token = res.session.access_token
+                    st.session_state.refresh_token = res.session.refresh_token
                     st.session_state.user_id = res.user.id
                     st.session_state.user_email = res.user.email
                     save_auth_cookies()
@@ -78,11 +82,41 @@ def render_login():
                 st.error(f"Sign up failed: {e}")
 
 
+def _token_needs_refresh(token: str, skew_seconds: int = 60) -> bool:
+    """True if the JWT is expired or within `skew_seconds` of expiring."""
+    if not token:
+        return True
+    try:
+        payload = jwt.decode(token, options={"verify_signature": False})
+        exp = payload.get("exp")
+        if not exp:
+            return False
+        return time.time() + skew_seconds >= exp
+    except Exception:
+        return True
+
+
 def get_sb():
-    """Get the authenticated Supabase client from session state."""
+    """Authenticated Supabase client. Auto-refreshes the JWT before it expires
+    using the stored refresh_token; if refresh fails the user is logged out."""
     token = st.session_state.get("access_token")
     if not token:
         return None
+    if _token_needs_refresh(token):
+        rt = st.session_state.get("refresh_token")
+        if rt:
+            new_access, new_refresh = refresh_supabase_token(rt)
+            if new_access:
+                st.session_state.access_token = new_access
+                if new_refresh:
+                    st.session_state.refresh_token = new_refresh
+                save_auth_cookies()
+                token = new_access
+            else:
+                # Refresh token is also invalid — force re-login.
+                _clear_auth()
+                st.warning("Session expired. Please log in again.")
+                st.rerun()
     return get_authed_supabase(token)
 
 
@@ -94,6 +128,7 @@ def is_logged_in():
     token = cookie_manager.get("mn_access_token")
     if token:
         st.session_state.access_token = token
+        st.session_state.refresh_token = cookie_manager.get("mn_refresh_token") or ""
         st.session_state.user_id = cookie_manager.get("mn_user_id") or ""
         st.session_state.user_email = cookie_manager.get("mn_user_email") or ""
         return True
@@ -103,16 +138,22 @@ def is_logged_in():
 def save_auth_cookies():
     """Save auth data to cookies."""
     cookie_manager.set("mn_access_token", st.session_state.get("access_token", ""))
+    cookie_manager.set("mn_refresh_token", st.session_state.get("refresh_token", ""))
     cookie_manager.set("mn_user_id", st.session_state.get("user_id", ""))
     cookie_manager.set("mn_user_email", st.session_state.get("user_email", ""))
 
 
-def logout():
-    for key in ["access_token", "user_id", "user_email"]:
+def _clear_auth():
+    for key in ["access_token", "refresh_token", "user_id", "user_email"]:
         st.session_state.pop(key, None)
     cookie_manager.remove("mn_access_token")
+    cookie_manager.remove("mn_refresh_token")
     cookie_manager.remove("mn_user_id")
     cookie_manager.remove("mn_user_email")
+
+
+def logout():
+    _clear_auth()
     st.session_state.page = "dashboard"
     st.rerun()
 
