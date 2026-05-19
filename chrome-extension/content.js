@@ -1,5 +1,42 @@
-// Mistake Notebook — UWorld Content Script
-// Smart capture of question, answers, explanation from UWorld pages
+// Mistake Notebook — USMLE Content Script
+// Smart capture of question, answers, explanation from UWorld and NBME review pages
+
+function detectSource() {
+  const h = location.hostname;
+  if (h.includes("nbme.org") || h.includes("starttest.com")) return "nbme";
+  if (h.includes("uworld.com")) return "uworld";
+  return "unknown";
+}
+
+// Recursively collect innerText from the main DOM plus any open shadow roots.
+// QuickSight (which NBME uses for review) renders much of its content in
+// custom elements with shadow DOM; document.body.innerText alone misses it.
+function collectAllText(root = document.body) {
+  let text = root.innerText || "";
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+  let node = walker.nextNode();
+  while (node) {
+    if (node.shadowRoot) {
+      text += "\n" + collectAllText(node.shadowRoot);
+    }
+    node = walker.nextNode();
+  }
+  return text;
+}
+
+// Find all elements (including inside open shadow roots) matching a selector.
+function queryAllDeep(selector, root = document) {
+  const results = Array.from(root.querySelectorAll(selector));
+  const walker = document.createTreeWalker(root.body || root, NodeFilter.SHOW_ELEMENT);
+  let node = walker.nextNode();
+  while (node) {
+    if (node.shadowRoot) {
+      results.push(...queryAllDeep(selector, node.shadowRoot));
+    }
+    node = walker.nextNode();
+  }
+  return results;
+}
 
 const MISTAKE_TYPES = [
   "Misread the question",
@@ -29,7 +66,7 @@ function showToast(message, type = "success") {
 
 // --- Smart Page Scraping ---
 
-function scrapeUWorld() {
+function scrapePage() {
   const result = {
     questionStem: "",
     answerChoices: [],
@@ -37,16 +74,47 @@ function scrapeUWorld() {
     correctAnswer: "",
     explanation: "",
     fullText: "",
+    source: detectSource(),
   };
 
   // Strategy: grab ALL text content from the page body, then try to
-  // intelligently parse it into sections. UWorld's DOM changes frequently,
+  // intelligently parse it into sections. UWorld/NBME DOMs change,
   // so we rely on text patterns rather than specific selectors.
 
-  const body = document.body.innerText || "";
+  const body = collectAllText(document.body);
 
-  // 1. Try to find answer choice patterns (A., B., C., etc.)
-  const choicePattern = /^[A-F][.)]\s*.+$/gm;
+  // 0a. NBME-style explicit label — "Correct Answer: F." appears verbatim on
+  //     the review page. UWorld doesn't render this label, so it's safe.
+  const correctAnsMatch = body.match(/Correct\s+Answer\s*[:\-]\s*([A-Z])(?:[.\s)]|$)/i);
+  if (correctAnsMatch) result.correctAnswer = correctAnsMatch[1].toUpperCase();
+  //     "Your Answer:" — present on some review UIs (rare on NBME CBSSA, but
+  //     defensive in case other NBME products render it).
+  const yourAnsMatch = body.match(/Your\s+(?:Answer|Response)\s*[:\-]\s*([A-Z])(?:[.\s)]|$)/i);
+  if (yourAnsMatch) result.selectedAnswer = yourAnsMatch[1].toUpperCase();
+
+  // 0b. Selected-answer fallback: NBME shows the user's pick as a filled radio
+  //     button with no surrounding label text. Try real <input>s first, then
+  //     ARIA-checked custom widgets.
+  if (!result.selectedAnswer) {
+    const candidates = [
+      ...queryAllDeep('input[type="radio"]:checked'),
+      ...queryAllDeep('[role="radio"][aria-checked="true"]'),
+      ...queryAllDeep('[aria-checked="true"]'),
+    ];
+    for (const el of candidates) {
+      const container = el.closest("label") || el.closest("li") || el.parentElement;
+      const text = container?.innerText?.trim() || "";
+      const m = text.match(/^([A-Z])[.)]/m);
+      if (m) {
+        result.selectedAnswer = m[1].toUpperCase();
+        break;
+      }
+    }
+  }
+
+  // 1. Try to find answer choice patterns (A., B., C., etc., up to Z for
+  //    NBME matching-set questions).
+  const choicePattern = /^[A-Z][.)]\s*.+$/gm;
   const choices = body.match(choicePattern) || [];
   if (choices.length >= 2) {
     result.answerChoices = choices.map((c) => c.trim());
@@ -64,22 +132,24 @@ function scrapeUWorld() {
     const color = style.color;
     const decoration = style.textDecoration;
 
-    // Green background or text often indicates correct answer
+    // Green (UWorld) or yellow (NBME) background often indicates correct answer
     if (
       (bg.includes("0, 128") || bg.includes("0, 153") || bg.includes("76, 175") ||
        bg.includes("102, 187") || bg.includes("34, 197") || bg.includes("22, 163") ||
+       bg.includes("255, 255, 0") || bg.includes("255, 235") || bg.includes("253, 224") ||
+       bg.includes("250, 240, 137") || bg.includes("255, 251, 0") ||
        color.includes("0, 128") || color.includes("34, 197")) &&
-      text.match(/^[A-F][.)]\s/)
+      text.match(/^[A-Z][.)]\s/)
     ) {
       result.correctAnswer = text;
     }
 
-    // Red or strikethrough often indicates the wrong selected answer
+    // Red or strikethrough often indicates the wrong selected answer (UWorld)
     if (
       (bg.includes("244, 67") || bg.includes("239, 83") || bg.includes("255, 82") ||
        bg.includes("229, 57") || decoration.includes("line-through") ||
        color.includes("244, 67") || color.includes("239, 83")) &&
-      text.match(/^[A-F][.)]\s/)
+      text.match(/^[A-Z][.)]\s/)
     ) {
       result.selectedAnswer = text;
     }
@@ -100,32 +170,54 @@ function scrapeUWorld() {
     }
   }
 
-  // 4. Try to extract explanation — text after "Explanation" or after answer choices
+  // 3b. If NBME label gave us only a letter, upgrade to the full choice text
+  for (const field of ["selectedAnswer", "correctAnswer"]) {
+    const val = result[field];
+    if (val && val.length <= 2) {
+      const letter = val[0].toUpperCase();
+      const match = result.answerChoices.find((c) => c[0].toUpperCase() === letter);
+      if (match) result[field] = match;
+    }
+  }
+
+  // 4. Try to extract explanation — text after "Explanation" or after answer choices.
+  //    On NBME, the explanation paragraph starts right after "Correct Answer: X." —
+  //    adding that as a marker captures the full rationale + incorrect-answer
+  //    breakdown + educational objective in one shot.
   const explanationMarkers = [
+    "Correct Answer:",
     "Educational Objective",
     "Explanation",
     "Bottom Line",
     "The correct answer is",
     "This question",
+    "Rationale",
+    "Why this is correct",
+    "Why the other answers are wrong",
+    "Incorrect Answers",
   ];
 
   for (const marker of explanationMarkers) {
     const idx = body.indexOf(marker);
     if (idx > 0) {
-      const explanationText = body.substring(idx, idx + 2000).trim();
+      const explanationText = body.substring(idx, idx + 3000).trim();
       if (explanationText.length > result.explanation.length) {
         result.explanation = explanationText;
       }
     }
   }
 
-  // 5. Also try specific DOM selectors that UWorld has used
+  // 5. Also try specific DOM selectors that UWorld/NBME have used
   const selectorAttempts = [
     { sel: "[class*='explanat']", field: "explanation" },
+    { sel: "[class*='rationale']", field: "explanation" },
     { sel: "[class*='question-stem']", field: "questionStem" },
     { sel: "[class*='questionStem']", field: "questionStem" },
     { sel: "[class*='stem']", field: "questionStem" },
+    { sel: "[class*='vignette']", field: "questionStem" },
     { sel: "[class*='objective']", field: "explanation" },
+    { sel: "[data-testid*='explanation']", field: "explanation" },
+    { sel: "[data-testid*='stem']", field: "questionStem" },
   ];
 
   for (const { sel, field } of selectorAttempts) {
@@ -161,6 +253,13 @@ function scrapeUWorld() {
     // Fallback: grab selected text or body
     const selected = window.getSelection().toString().trim();
     result.fullText = selected.length > 20 ? selected : body.substring(0, 4000).trim();
+  }
+
+  // Determine correctness when we have both letters.
+  if (result.selectedAnswer && result.correctAnswer) {
+    const sel = result.selectedAnswer[0]?.toUpperCase();
+    const cor = result.correctAnswer[0]?.toUpperCase();
+    if (sel && cor) result.wasCorrect = sel === cor;
   }
 
   return result;
@@ -227,9 +326,6 @@ function createModal(scraped, screenshotDataUrl) {
         ${previewHtml}
       </div>
 
-      <label>What I Picked (Wrong Answer)</label>
-      <textarea id="mn-wrong" rows="2" placeholder="Which option did you pick and why?">${wrongPrefill}</textarea>
-
       <label>Why I Got It Wrong</label>
       <textarea id="mn-why" rows="3" placeholder="What tripped you up?"></textarea>
 
@@ -263,7 +359,6 @@ function createModal(scraped, screenshotDataUrl) {
 
   // Save
   document.getElementById("mn-save").addEventListener("click", async () => {
-    const wrongAnswer = document.getElementById("mn-wrong").value;
     const whyWrong = document.getElementById("mn-why").value;
     const mistakeType = document.getElementById("mn-type").value;
     const saveBtn = document.getElementById("mn-save");
@@ -275,12 +370,14 @@ function createModal(scraped, screenshotDataUrl) {
       const saveData = {
         extracted_text: scraped.fullText,
         question_stem: scraped.questionStem,
-        wrong_answer: wrongAnswer || scraped.selectedAnswer,
+        wrong_answer: scraped.selectedAnswer,
         correct_answer: scraped.correctAnswer,
         why_i_got_it_wrong: whyWrong,
         mistake_type: mistakeType,
         explanation: scraped.explanation,
         screenshot: screenshotDataUrl,
+        source: scraped.source,
+        was_correct: scraped.wasCorrect ?? null,
       };
       const saved = await saveToSupabase(saveData);
 
@@ -421,6 +518,8 @@ async function saveToSupabase(data) {
     mnemonic_or_tip: "",
     topics_to_review: [],
     high_yield_facts: [],
+    source: data.source || "unknown",
+    was_correct: data.was_correct ?? null,
   };
 
   const res = await fetch(`${config.supabaseUrl}/rest/v1/mistakes`, {
@@ -445,7 +544,7 @@ async function saveToSupabase(data) {
 // --- Groq Analysis ---
 
 const GROQ_SYSTEM_PROMPT = `You are a USMLE Step 1 study assistant. A student will give you:
-1. Text from a medical question they got wrong (likely UWorld)
+1. Text from a medical question they got wrong (UWorld or NBME self-assessment)
 2. What answer they picked (wrong) and why they think they got it wrong
 
 Use all of this to provide a thorough analysis.
@@ -477,8 +576,9 @@ async function analyzeWithGroq(entryId, data) {
   const extractedText = data.extracted_text || "";
   if (extractedText.length < 10) return;
 
+  const sourceLabel = data.source === "nbme" ? "NBME" : data.source === "uworld" ? "UWorld" : "USMLE";
   const parts = [
-    "Here is the text from my UWorld question:",
+    `Here is the text from my ${sourceLabel} question:`,
     `\n---\n${extractedText}\n---\n`,
   ];
   if (data.wrong_answer) parts.push(`**What I picked (wrong):** ${data.wrong_answer}`);
@@ -571,7 +671,7 @@ function injectCaptureButton() {
       // Capture screenshot and scrape page in parallel
       const [screenshot, scraped] = await Promise.all([
         captureScreenshot(),
-        Promise.resolve(scrapeUWorld()),
+        Promise.resolve(scrapePage()),
       ]);
 
       if (scraped.fullText.length < 10 && !screenshot) {
@@ -602,7 +702,7 @@ let autoCapturePending = false; // prevent duplicate triggers
 
 function getSettings() {
   return new Promise((resolve) => {
-    chrome.storage.sync.get(["autoCapture", "silentMode"], resolve);
+    chrome.storage.sync.get(["autoCapture", "silentMode", "logAll"], resolve);
   });
 }
 
@@ -613,9 +713,11 @@ async function checkForWrongAnswer() {
   const settings = await getSettings();
   if (!settings.autoCapture) return;
 
-  const scraped = scrapeUWorld();
-  // Only trigger if we detected both a wrong and correct answer (i.e., user got it wrong)
+  const scraped = scrapePage();
+  // Need both letters to evaluate
   if (!scraped.selectedAnswer || !scraped.correctAnswer) return;
+  // Default: only log when picked != correct. With "Log All", log either way.
+  if (scraped.wasCorrect === true && !settings.logAll) return;
 
   autoCapturePending = true;
 
@@ -629,9 +731,11 @@ async function checkForWrongAnswer() {
         wrong_answer: scraped.selectedAnswer,
         correct_answer: scraped.correctAnswer,
         why_i_got_it_wrong: "",
-        mistake_type: "Didn't know the concept",
+        mistake_type: scraped.wasCorrect ? "Other" : "Didn't know the concept",
         explanation: scraped.explanation,
         screenshot,
+        source: scraped.source,
+        was_correct: scraped.wasCorrect ?? null,
       };
       const saved = await saveToSupabase(saveData);
       showToast("Mistake auto-logged — analyzing...", "info");
@@ -667,23 +771,29 @@ function onPageChange() {
 
 // --- Init ---
 
-// Inject when page loads
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", injectCaptureButton);
-} else {
-  injectCaptureButton();
-}
+// Only run UI/observer in the top frame. The script is injected in all frames
+// (via manifest all_frames) so future iframe-aware scraping is possible, but
+// only the top frame should host the floating button + auto-capture watcher.
+const IS_TOP_FRAME = window.top === window;
 
-// Debounced check — wait for DOM to settle after mutations
-let checkTimer = null;
-function debouncedCheck() {
-  clearTimeout(checkTimer);
-  checkTimer = setTimeout(() => checkForWrongAnswer(), 1500);
-}
+if (IS_TOP_FRAME) {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", injectCaptureButton);
+  } else {
+    injectCaptureButton();
+  }
 
-// Watch for SPA navigation + answer result appearing
-const observer = new MutationObserver(() => {
-  onPageChange();
-  debouncedCheck();
-});
-observer.observe(document.body, { childList: true, subtree: true });
+  // Debounced check — wait for DOM to settle after mutations
+  let checkTimer = null;
+  function debouncedCheck() {
+    clearTimeout(checkTimer);
+    checkTimer = setTimeout(() => checkForWrongAnswer(), 1500);
+  }
+
+  // Watch for SPA navigation + answer result appearing
+  const observer = new MutationObserver(() => {
+    onPageChange();
+    debouncedCheck();
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+}

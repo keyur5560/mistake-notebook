@@ -468,19 +468,58 @@ def render_dashboard():
 
         st.divider()
 
-        # Filters
-        col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+        # Build session list: distinct (source, date) pairs from the entries,
+        # newest first. Format: "NBME — May 19, 2026".
+        def _session_key(entry):
+            src = entry.get("source") or "unknown"
+            day = (entry.get("created_at") or "")[:10]
+            return (src, day)
+
+        def _session_label(key):
+            src, day = key
+            try:
+                day_fmt = datetime.strptime(day, "%Y-%m-%d").strftime("%b %d, %Y")
+            except ValueError:
+                day_fmt = day or "—"
+            label = {"uworld": "UWorld", "nbme": "NBME"}.get(src, src.title() or "Unknown")
+            return f"{label} — {day_fmt}"
+
+        seen_sessions = []
+        for e in entries:
+            k = _session_key(e)
+            if k not in seen_sessions:
+                seen_sessions.append(k)
+        seen_sessions.sort(key=lambda k: k[1], reverse=True)
+        session_options = ["All"] + [_session_label(k) for k in seen_sessions]
+        session_label_to_key = {_session_label(k): k for k in seen_sessions}
+
+        # Filters — row 1: text + session + correctness; row 2: subject/system/mistake
+        col_f1, col_f2, col_f3 = st.columns([2, 1, 1])
         with col_f1:
             search = st.text_input("Search", placeholder="Search entries...")
         with col_f2:
-            f_subject = st.selectbox("Subject", ["All"] + list(USMLE_SUBJECTS))
+            f_session = st.selectbox("Session", session_options)
         with col_f3:
-            f_system = st.selectbox("Organ System", ["All"] + list(ORGAN_SYSTEMS))
+            f_correctness = st.selectbox("Show", ["Wrongs only", "All", "Corrects only"])
+        col_f4, col_f5, col_f6 = st.columns(3)
         with col_f4:
+            f_subject = st.selectbox("Subject", ["All"] + list(USMLE_SUBJECTS))
+        with col_f5:
+            f_system = st.selectbox("Organ System", ["All"] + list(ORGAN_SYSTEMS))
+        with col_f6:
             f_mistake = st.selectbox("Mistake Type", ["All"] + list(MISTAKE_TYPES))
 
         # Filter
         filtered = entries
+        if f_session != "All":
+            target = session_label_to_key.get(f_session)
+            if target:
+                filtered = [e for e in filtered if _session_key(e) == target]
+        if f_correctness == "Wrongs only":
+            # NULL (legacy) counts as wrong; explicit True is excluded.
+            filtered = [e for e in filtered if e.get("was_correct") is not True]
+        elif f_correctness == "Corrects only":
+            filtered = [e for e in filtered if e.get("was_correct") is True]
         if f_subject != "All":
             filtered = [e for e in filtered if e["subject"] == f_subject]
         if f_system != "All":

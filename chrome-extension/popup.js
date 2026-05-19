@@ -9,15 +9,19 @@ const userEmailEl = document.getElementById("user-email");
 const autoCaptureToggle = document.getElementById("auto-capture-toggle");
 const silentToggle = document.getElementById("silent-toggle");
 const silentRow = document.getElementById("silent-row");
+const logAllToggle = document.getElementById("logall-toggle");
+const logAllRow = document.getElementById("logall-row");
 
 // --- Settings toggles ---
 autoCaptureToggle.addEventListener("change", () => {
   const on = autoCaptureToggle.checked;
   chrome.storage.sync.set({ autoCapture: on });
   silentRow.classList.toggle("enabled", on);
+  logAllRow.classList.toggle("enabled", on);
   if (!on) {
     silentToggle.checked = false;
-    chrome.storage.sync.set({ silentMode: false });
+    logAllToggle.checked = false;
+    chrome.storage.sync.set({ silentMode: false, logAll: false });
   }
 });
 
@@ -25,14 +29,20 @@ silentToggle.addEventListener("change", () => {
   chrome.storage.sync.set({ silentMode: silentToggle.checked });
 });
 
+logAllToggle.addEventListener("change", () => {
+  chrome.storage.sync.set({ logAll: logAllToggle.checked });
+});
+
 // --- Load saved state ---
 chrome.storage.sync.get(
-  ["supabaseUrl", "supabaseKey", "groqKey", "accessToken", "userId", "userEmail", "autoCapture", "silentMode"],
+  ["supabaseUrl", "supabaseKey", "groqKey", "accessToken", "userId", "userEmail", "autoCapture", "silentMode", "logAll"],
   (data) => {
     // Restore toggle state
     autoCaptureToggle.checked = !!data.autoCapture;
     silentToggle.checked = !!data.silentMode;
+    logAllToggle.checked = !!data.logAll;
     silentRow.classList.toggle("enabled", !!data.autoCapture);
+    logAllRow.classList.toggle("enabled", !!data.autoCapture);
     if (data.supabaseUrl) {
       document.getElementById("supabase-url").value = data.supabaseUrl;
     }

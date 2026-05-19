@@ -99,6 +99,8 @@ def row_to_dict(row: dict) -> dict:
         "last_reviewed_at": row.get("last_reviewed_at"),
         "next_review_at": row.get("next_review_at"),
         "confidence": row.get("confidence", 1),
+        "source": row.get("source") or "",
+        "was_correct": row.get("was_correct"),
     }
 
 

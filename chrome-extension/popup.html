@@ -161,14 +161,14 @@
     .toggle-switch input:checked + .toggle-slider::before {
       transform: translateX(18px);
     }
-    #silent-row { opacity: 0.5; pointer-events: none; }
-    #silent-row.enabled { opacity: 1; pointer-events: auto; }
+    #silent-row, #logall-row { opacity: 0.5; pointer-events: none; }
+    #silent-row.enabled, #logall-row.enabled { opacity: 1; pointer-events: auto; }
   </style>
 </head>
 <body>
   <div class="header">
     <h1>Mistake Notebook</h1>
-    <p>UWorld Capture Extension</p>
+    <p>UWorld + NBME Capture</p>
   </div>
 
   <div class="body">
@@ -215,6 +215,16 @@
           <span class="toggle-slider"></span>
         </label>
       </div>
+      <div class="toggle-row" id="logall-row">
+        <div>
+          <div class="toggle-label">Log All Questions</div>
+          <div class="toggle-desc">Also log correct answers (default: wrongs only)</div>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="logall-toggle">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
     </div>
 
     <div class="divider"></div>
@@ -240,7 +250,7 @@
   </div>
 
   <div class="footer">
-    When on UWorld, click the floating "Log Mistake" button to capture.
+    On UWorld or NBME, click the floating "Log Mistake" button to capture.
   </div>
 
   <script src="popup.js"></script>
