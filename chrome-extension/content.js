@@ -290,18 +290,49 @@ function scrapePage() {
     }
   }
 
-  // 3. Try to extract question stem — text before answer choices
+  // 3. Try to extract question stem — text before answer choices, with
+  //    aggressive junk-line filtering (NBME's page chrome, our own button
+  //    text, the read-only notice, etc.).
   if (result.answerChoices.length > 0) {
     const firstChoice = result.answerChoices[0];
     const choiceIdx = body.indexOf(firstChoice);
     if (choiceIdx > 20) {
-      result.questionStem = body.substring(0, choiceIdx).trim();
-      // Clean up — remove navigation/header junk (usually short lines at the top)
-      const lines = result.questionStem.split("\n");
-      const meaningfulStart = lines.findIndex((l) => l.trim().length > 40);
-      if (meaningfulStart > 0) {
-        result.questionStem = lines.slice(meaningfulStart).join("\n").trim();
+      const junkPatterns = [
+        /^Skip to /i,
+        /^Exam Section\s*\d+/i,
+        /^Item:\s*\d+\s*of\s*\d+/i,
+        /^National Board of Medical Examiners/i,
+        /^Comprehensive [\w\s&]*Self-Assessment/i,
+        /^(Next|Previous|Score Report|Lab Values|Calculator|Help|Pause|Submit|Mark|Highlight|Strikeout)$/i,
+        /^(Log Mistake|Log|Captures \(\d+\)|No captures yet)$/,
+        /^Capturing/i,
+        /^Saving/i,
+        /^Analyzing/i,
+        /^[▼▲®✓✗\?•○●]+$/,
+        /^Question\s*\d+\.?\s*$/i,
+        /^This is a read[- ]only version of the item/i,
+        /^You (can only|cannot)/i,
+        /^This is a multiple choice question/i,
+        /^Saved:?\s*/i,
+        /^Logged:?\s*/i,
+        /^Auto-logged:?\s*/i,
+        /^picked .* \/ correct /i,
+        /^NBME$|^UWORLD$/i,
+        /^\d{1,2}:\d{2}(:\d{2})?$/, // timestamps from our panel
+        /^\d+\.\s*$/, // bare item number like "1.    "
+      ];
+      const rawLines = body.substring(0, choiceIdx).split("\n");
+      const kept = [];
+      for (const raw of rawLines) {
+        const line = raw.trim();
+        if (!line) continue;
+        if (junkPatterns.some((p) => p.test(line))) continue;
+        kept.push(line);
       }
+      // Find the first line that looks like the start of a real vignette
+      // (long enough to be a sentence). Everything from there is the stem.
+      const startIdx = kept.findIndex((l) => l.length > 40);
+      result.questionStem = (startIdx >= 0 ? kept.slice(startIdx) : kept).join("\n").trim();
     }
   }
 

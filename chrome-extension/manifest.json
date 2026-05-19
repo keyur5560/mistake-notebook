@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Mistake Notebook — USMLE Capture",
-  "version": "1.7.4",
+  "version": "1.7.5",
   "description": "Capture UWorld and NBME questions you got wrong and send them to your Mistake Notebook",
   "permissions": ["storage"],
   "host_permissions": [
