@@ -104,6 +104,19 @@ function stemPreview(stem, n = 80) {
   return s.length > n ? s.slice(0, n) + "…" : s;
 }
 
+// Best-effort label for toasts when the stem might be missing — falls back
+// to correct answer, then explanation, then a generic message.
+function captureSummary(scraped, n = 60) {
+  const stem = (scraped.questionStem || "").trim();
+  if (stem) return stemPreview(stem, n);
+  if (scraped.correctAnswer) return `correct = ${scraped.correctAnswer}`;
+  if (scraped.explanation) {
+    const e = scraped.explanation.replace(/\s+/g, " ").trim();
+    return e.length > n ? e.slice(0, n) + "…" : e;
+  }
+  return "(no preview)";
+}
+
 function recordCapture(scraped) {
   recentCaptures.unshift({
     ts: new Date(),
@@ -195,7 +208,15 @@ function scrapePage() {
   // intelligently parse it into sections. UWorld/NBME DOMs change,
   // so we rely on text patterns rather than specific selectors.
 
-  const body = collectAllText(document.body);
+  let body = collectAllText(document.body);
+
+  // Normalize NBME read-only view, which renders each answer choice as three
+  // separate lines (the letter, then ")", then the choice text). Collapse
+  // those triplets back to "A) Anterior" so the rest of the pipeline works.
+  body = body.replace(
+    /([A-Z])\s*\n\s*[).]\s*\n\s*([^\n]+)/g,
+    "$1) $2"
+  );
 
   // 0a. NBME-style explicit label — "Correct Answer: F." appears verbatim on
   //     the review page. UWorld doesn't render this label, so it's safe.
@@ -515,7 +536,7 @@ function createModal(scraped, screenshotDataUrl) {
       overlay.classList.remove("show");
       setTimeout(() => overlay.remove(), 300);
       recordCapture(scraped);
-      showToast(`Saved: ${stemPreview(scraped.questionStem, 60)}`, "success");
+      showToast(`Saved: ${captureSummary(scraped, 60)}`, "success");
 
       // Run Groq analysis in background
       if (saved?.[0]?.id) {
@@ -877,7 +898,7 @@ async function quickLogCurrentPage() {
 
   const saved = await saveToSupabase(saveData);
   recordCapture(scraped);
-  showToast(`Logged: ${stemPreview(scraped.questionStem, 60)}`, "success");
+  showToast(`Logged: ${captureSummary(scraped, 60)}`, "success");
   flashCaptureButton();
   if (saved?.[0]?.id) {
     analyzeWithGroq(saved[0].id, saveData);
@@ -973,7 +994,7 @@ async function checkForWrongAnswer() {
       };
       const saved = await saveToSupabase(saveData);
       recordCapture(scraped);
-      showToast(`Auto-logged: ${stemPreview(scraped.questionStem, 60)}`, "success");
+      showToast(`Auto-logged: ${captureSummary(scraped, 60)}`, "success");
       flashCaptureButton();
       if (saved?.[0]?.id) {
         analyzeWithGroq(saved[0].id, saveData);
