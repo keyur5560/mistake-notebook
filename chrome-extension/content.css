@@ -71,6 +71,115 @@
   cursor: not-allowed;
 }
 
+/* Capture log panel — top-right, collapsible list of recent captures */
+#mn-capture-log {
+  position: fixed;
+  top: 120px;
+  right: 16px;
+  width: 300px;
+  max-height: 60vh;
+  z-index: 2147483645;
+  background: white;
+  border: 2px solid #1e293b;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#mn-log-header {
+  background: #1e293b;
+  color: white;
+  padding: 10px 14px;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  user-select: none;
+}
+
+#mn-log-toggle {
+  font-size: 11px;
+}
+
+#mn-capture-log.collapsed #mn-log-body {
+  display: none;
+}
+
+#mn-log-body {
+  overflow-y: auto;
+  max-height: calc(60vh - 40px);
+  background: #f8fafc;
+}
+
+#mn-log-empty {
+  padding: 16px;
+  font-size: 12px;
+  color: #94a3b8;
+  text-align: center;
+  font-style: italic;
+}
+
+.mn-log-item {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 12px;
+}
+
+.mn-log-item:last-child {
+  border-bottom: none;
+}
+
+.mn-log-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.mn-log-mark {
+  font-weight: 700;
+  font-size: 14px;
+  width: 18px;
+  text-align: center;
+}
+
+.mn-log-correct { color: #16a34a; }
+.mn-log-wrong   { color: #dc2626; }
+.mn-log-unknown { color: #94a3b8; }
+
+.mn-log-src {
+  background: #1e293b;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.mn-log-time {
+  color: #64748b;
+  font-size: 11px;
+  margin-left: auto;
+}
+
+.mn-log-stem {
+  color: #1e293b;
+  line-height: 1.4;
+}
+
+.mn-log-ans {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
 #mn-capture-btn svg {
   width: 18px;
   height: 18px;

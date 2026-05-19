@@ -551,8 +551,8 @@ def render_dashboard():
                 meta.append("Result: Correct")
             elif wc is False:
                 meta.append("Result: Wrong")
-            else:
-                meta.append("Result: Wrong (legacy)")
+            # If None, omit the Result field rather than guess — old rows
+            # predate the was_correct column and we genuinely don't know.
             if e.get("subject"):
                 meta.append(f"Subject: {e['subject']}")
             if e.get("organ_system"):

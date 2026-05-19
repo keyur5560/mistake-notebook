@@ -93,6 +93,91 @@ function flashCaptureButton() {
   setTimeout(() => btn.classList.remove("mn-flash"), 900);
 }
 
+// --- Capture Log Panel ---
+
+const recentCaptures = []; // newest first, max 10
+const MAX_LOG = 10;
+
+function stemPreview(stem, n = 80) {
+  const s = (stem || "").replace(/\s+/g, " ").trim();
+  if (!s) return "(no question text)";
+  return s.length > n ? s.slice(0, n) + "…" : s;
+}
+
+function recordCapture(scraped) {
+  recentCaptures.unshift({
+    ts: new Date(),
+    source: scraped.source || "unknown",
+    stem: stemPreview(scraped.questionStem, 90),
+    wasCorrect: scraped.wasCorrect,
+    selected: scraped.selectedAnswer || "",
+    correct: scraped.correctAnswer || "",
+  });
+  if (recentCaptures.length > MAX_LOG) recentCaptures.length = MAX_LOG;
+  renderCaptureLog();
+}
+
+function injectCaptureLog() {
+  if (document.getElementById("mn-capture-log")) return;
+  const panel = document.createElement("div");
+  panel.id = "mn-capture-log";
+  panel.innerHTML = `
+    <div id="mn-log-header">
+      <span id="mn-log-title">Captures (0)</span>
+      <span id="mn-log-toggle">▼</span>
+    </div>
+    <div id="mn-log-body">
+      <div id="mn-log-empty">No captures yet</div>
+    </div>
+  `;
+  document.body.appendChild(panel);
+
+  document.getElementById("mn-log-header").addEventListener("click", () => {
+    panel.classList.toggle("collapsed");
+    document.getElementById("mn-log-toggle").textContent =
+      panel.classList.contains("collapsed") ? "▲" : "▼";
+  });
+}
+
+function renderCaptureLog() {
+  injectCaptureLog();
+  const body = document.getElementById("mn-log-body");
+  const title = document.getElementById("mn-log-title");
+  if (!body || !title) return;
+  title.textContent = `Captures (${recentCaptures.length})`;
+  if (recentCaptures.length === 0) {
+    body.innerHTML = `<div id="mn-log-empty">No captures yet</div>`;
+    return;
+  }
+  body.innerHTML = recentCaptures
+    .map((c) => {
+      const t = c.ts.toLocaleTimeString([], { hour12: false });
+      const src = c.source.toUpperCase();
+      const mark =
+        c.wasCorrect === true
+          ? '<span class="mn-log-mark mn-log-correct">✓</span>'
+          : c.wasCorrect === false
+          ? '<span class="mn-log-mark mn-log-wrong">✗</span>'
+          : '<span class="mn-log-mark mn-log-unknown">?</span>';
+      const ans =
+        c.selected || c.correct
+          ? `<div class="mn-log-ans">picked ${c.selected ? c.selected[0] : "—"} / correct ${c.correct ? c.correct[0] : "—"}</div>`
+          : "";
+      return `
+        <div class="mn-log-item">
+          <div class="mn-log-meta">
+            ${mark}
+            <span class="mn-log-src">${src}</span>
+            <span class="mn-log-time">${t}</span>
+          </div>
+          <div class="mn-log-stem">${c.stem.replace(/</g, "&lt;")}</div>
+          ${ans}
+        </div>
+      `;
+    })
+    .join("");
+}
+
 // --- Smart Page Scraping ---
 
 function scrapePage() {
@@ -412,7 +497,8 @@ function createModal(scraped, screenshotDataUrl) {
 
       overlay.classList.remove("show");
       setTimeout(() => overlay.remove(), 300);
-      showToast("Saved! Analyzing...", "success");
+      recordCapture(scraped);
+      showToast(`Saved: ${stemPreview(scraped.questionStem, 60)}`, "success");
 
       // Run Groq analysis in background
       if (saved?.[0]?.id) {
@@ -632,14 +718,29 @@ async function analyzeWithGroq(entryId, data) {
       }),
     });
 
-    if (!groqRes.ok) return;
+    if (!groqRes.ok) {
+      if (groqRes.status === 429) {
+        showToast("Groq rate-limited — saved without analysis", "error");
+      } else if (groqRes.status === 401) {
+        showToast("Groq API key invalid — saved without analysis", "error");
+      } else {
+        showToast(`Groq error ${groqRes.status} — saved without analysis`, "error");
+      }
+      return;
+    }
 
     const groqData = await groqRes.json();
     const content = groqData.choices?.[0]?.message?.content;
-    if (!content) return;
+    if (!content) {
+      showToast("Groq returned no content — saved without analysis", "error");
+      return;
+    }
 
     const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return;
+    if (!jsonMatch) {
+      showToast("Groq returned non-JSON — saved without analysis", "error");
+      return;
+    }
 
     const result = JSON.parse(jsonMatch[0]);
 
@@ -732,8 +833,15 @@ async function quickLogCurrentPage() {
     Promise.resolve(scrapePage()),
   ]);
 
-  if (scraped.fullText.length < 10 && !screenshot) {
-    showToast("Not enough content found.", "error");
+  // Require real content. Without these we'd save junk like nav text.
+  // Need a question stem AND at least one of the two answers.
+  const hasStem = (scraped.questionStem || "").trim().length >= 30;
+  const hasAnswer = !!(scraped.selectedAnswer || scraped.correctAnswer);
+  if (!hasStem || !hasAnswer) {
+    showToast(
+      "Couldn't find a question on this page. Go to the item review screen and try again.",
+      "error"
+    );
     return;
   }
 
@@ -751,7 +859,8 @@ async function quickLogCurrentPage() {
   };
 
   const saved = await saveToSupabase(saveData);
-  showToast("Logged — analyzing...", "success");
+  recordCapture(scraped);
+  showToast(`Logged: ${stemPreview(scraped.questionStem, 60)}`, "success");
   flashCaptureButton();
   if (saved?.[0]?.id) {
     analyzeWithGroq(saved[0].id, saveData);
@@ -846,7 +955,8 @@ async function checkForWrongAnswer() {
         was_correct: scraped.wasCorrect ?? null,
       };
       const saved = await saveToSupabase(saveData);
-      showToast("Mistake auto-logged — analyzing...", "success");
+      recordCapture(scraped);
+      showToast(`Auto-logged: ${stemPreview(scraped.questionStem, 60)}`, "success");
       flashCaptureButton();
       if (saved?.[0]?.id) {
         analyzeWithGroq(saved[0].id, saveData);
@@ -876,6 +986,9 @@ function onPageChange() {
   if (!document.getElementById("mn-quick-log-btn")) {
     injectQuickLogButton();
   }
+  if (!document.getElementById("mn-capture-log")) {
+    injectCaptureLog();
+  }
 }
 
 // --- Init ---
@@ -889,6 +1002,7 @@ if (IS_TOP_FRAME) {
   const injectButtons = () => {
     injectCaptureButton();
     injectQuickLogButton();
+    injectCaptureLog();
   };
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", injectButtons);
