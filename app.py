@@ -535,6 +535,87 @@ def render_dashboard():
                 e.get("extracted_text", ""), e.get("subject", ""), e.get("organ_system", ""),
             ]).lower()]
 
+        # Export report — uses the currently filtered set
+        def _entry_to_markdown(e):
+            lines = []
+            title = e.get("title") or (e.get("question_stem", "")[:80]) or "Entry"
+            lines.append(f"## {title}")
+            meta = []
+            src = e.get("source") or ""
+            if src:
+                meta.append(f"Source: {src.upper() if src in ('nbme','uworld') else src}")
+            if e.get("created_at"):
+                meta.append(f"Date: {e['created_at'][:10]}")
+            wc = e.get("was_correct")
+            if wc is True:
+                meta.append("Result: Correct")
+            elif wc is False:
+                meta.append("Result: Wrong")
+            else:
+                meta.append("Result: Wrong (legacy)")
+            if e.get("subject"):
+                meta.append(f"Subject: {e['subject']}")
+            if e.get("organ_system"):
+                meta.append(f"System: {e['organ_system']}")
+            if e.get("mistake_type"):
+                meta.append(f"Type: {e['mistake_type']}")
+            lines.append(" · ".join(meta))
+            lines.append("")
+            if e.get("question_stem"):
+                lines.append("**Question:**")
+                lines.append(e["question_stem"])
+                lines.append("")
+            if e.get("wrong_answer"):
+                lines.append(f"**Picked:** {e['wrong_answer']}")
+            if e.get("correct_answer"):
+                lines.append(f"**Correct:** {e['correct_answer']}")
+            if e.get("why_i_got_it_wrong"):
+                lines.append("")
+                lines.append("**Why I got it wrong:**")
+                lines.append(e["why_i_got_it_wrong"])
+            if e.get("key_learning_point"):
+                lines.append("")
+                lines.append(f"**Key learning:** {e['key_learning_point']}")
+            if e.get("mnemonic_or_tip"):
+                lines.append(f"**Tip:** {e['mnemonic_or_tip']}")
+            topics = e.get("topics_to_review") or []
+            if isinstance(topics, list) and topics:
+                lines.append("")
+                lines.append("**Topics to review:**")
+                for t in topics:
+                    lines.append(f"- {t}")
+            return "\n".join(lines)
+
+        if filtered:
+            wrongs = sum(1 for e in filtered if e.get("was_correct") is not True)
+            corrects = sum(1 for e in filtered if e.get("was_correct") is True)
+            header = [
+                "# Mistake Notebook Export",
+                f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}",
+                f"Entries: {len(filtered)} ({wrongs} wrong / legacy, {corrects} correct)",
+            ]
+            applied = []
+            if f_session != "All": applied.append(f"Session={f_session}")
+            if f_correctness != "All": applied.append(f"Show={f_correctness}")
+            if f_subject != "All": applied.append(f"Subject={f_subject}")
+            if f_system != "All": applied.append(f"System={f_system}")
+            if f_mistake != "All": applied.append(f"MistakeType={f_mistake}")
+            if search: applied.append(f"Search='{search}'")
+            if applied:
+                header.append("Filters: " + ", ".join(applied))
+            header.append("")
+            header.append("---")
+            header.append("")
+            report_md = "\n".join(header) + "\n\n".join(_entry_to_markdown(e) for e in filtered)
+            fname = f"mistake-notebook-{datetime.utcnow().strftime('%Y%m%d-%H%M')}.md"
+            st.download_button(
+                "⬇️ Download report (for Claude)",
+                data=report_md,
+                file_name=fname,
+                mime="text/markdown",
+                help="Markdown summary of the entries currently shown. Paste into another Claude session for analysis.",
+            )
+
         # Entry cards
         for e in filtered:
             is_due = not e.get("next_review_at") or e["next_review_at"] <= datetime.utcnow().isoformat()
