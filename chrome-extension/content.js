@@ -8,9 +8,10 @@ function detectSource() {
   return "unknown";
 }
 
-// Recursively collect innerText from the main DOM plus any open shadow roots.
-// QuickSight (which NBME uses for review) renders much of its content in
-// custom elements with shadow DOM; document.body.innerText alone misses it.
+// Recursively collect innerText from the main DOM plus any open shadow roots
+// AND same-origin iframes. NBME's starttest.com loads each section (question,
+// labs, footer, etc.) into its own same-origin iframe — the top frame's body
+// only has nav chrome.
 function collectAllText(root = document.body) {
   let text = root.innerText || "";
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
@@ -19,19 +20,38 @@ function collectAllText(root = document.body) {
     if (node.shadowRoot) {
       text += "\n" + collectAllText(node.shadowRoot);
     }
+    if (node.tagName === "IFRAME") {
+      try {
+        const ibody = node.contentDocument?.body;
+        if (ibody) text += "\n" + collectAllText(ibody);
+      } catch (e) {
+        /* cross-origin — skip */
+      }
+    }
     node = walker.nextNode();
   }
   return text;
 }
 
-// Find all elements (including inside open shadow roots) matching a selector.
+// Find all elements (including inside open shadow roots and same-origin
+// iframes) matching a selector.
 function queryAllDeep(selector, root = document) {
-  const results = Array.from(root.querySelectorAll(selector));
-  const walker = document.createTreeWalker(root.body || root, NodeFilter.SHOW_ELEMENT);
+  const results = Array.from(root.querySelectorAll?.(selector) || []);
+  const base = root.body || root.documentElement || root;
+  if (!base || !base.nodeType) return results;
+  const walker = document.createTreeWalker(base, NodeFilter.SHOW_ELEMENT);
   let node = walker.nextNode();
   while (node) {
     if (node.shadowRoot) {
       results.push(...queryAllDeep(selector, node.shadowRoot));
+    }
+    if (node.tagName === "IFRAME") {
+      try {
+        const idoc = node.contentDocument;
+        if (idoc) results.push(...queryAllDeep(selector, idoc));
+      } catch (e) {
+        /* cross-origin — skip */
+      }
     }
     node = walker.nextNode();
   }
@@ -61,7 +81,16 @@ function showToast(message, type = "success") {
   toast.textContent = message;
   toast.className = type;
   requestAnimationFrame(() => toast.classList.add("show"));
-  setTimeout(() => toast.classList.remove("show"), 3000);
+  setTimeout(() => toast.classList.remove("show"), 4000);
+}
+
+function flashCaptureButton() {
+  const btn = document.getElementById("mn-capture-btn");
+  if (!btn) return;
+  btn.classList.remove("mn-flash");
+  void btn.offsetWidth; // restart animation
+  btn.classList.add("mn-flash");
+  setTimeout(() => btn.classList.remove("mn-flash"), 900);
 }
 
 // --- Smart Page Scraping ---
@@ -122,7 +151,7 @@ function scrapePage() {
 
   // 2. Look for elements with visual indicators of correct/incorrect
   //    UWorld typically uses green for correct, red/strikethrough for wrong
-  const allElements = document.querySelectorAll("*");
+  const allElements = queryAllDeep("*");
   for (const el of allElements) {
     const style = window.getComputedStyle(el);
     const text = el.innerText?.trim();
@@ -696,9 +725,85 @@ function injectCaptureButton() {
   document.body.appendChild(btn);
 }
 
+// Silent one-click log — no modal, same data the auto-capture flow saves.
+async function quickLogCurrentPage() {
+  const [screenshot, scraped] = await Promise.all([
+    captureScreenshot(),
+    Promise.resolve(scrapePage()),
+  ]);
+
+  if (scraped.fullText.length < 10 && !screenshot) {
+    showToast("Not enough content found.", "error");
+    return;
+  }
+
+  const saveData = {
+    extracted_text: scraped.fullText,
+    question_stem: scraped.questionStem,
+    wrong_answer: scraped.selectedAnswer,
+    correct_answer: scraped.correctAnswer,
+    why_i_got_it_wrong: "",
+    mistake_type: scraped.wasCorrect ? "Other" : "Didn't know the concept",
+    explanation: scraped.explanation,
+    screenshot,
+    source: scraped.source,
+    was_correct: scraped.wasCorrect ?? null,
+  };
+
+  const saved = await saveToSupabase(saveData);
+  showToast("Logged — analyzing...", "success");
+  flashCaptureButton();
+  if (saved?.[0]?.id) {
+    analyzeWithGroq(saved[0].id, saveData);
+  }
+}
+
+function injectQuickLogButton() {
+  if (document.getElementById("mn-quick-log-btn")) return;
+
+  const btn = document.createElement("button");
+  btn.id = "mn-quick-log-btn";
+  btn.innerHTML = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 13l4 4L19 7"/>
+    </svg>
+    Log
+  `;
+
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    const originalHtml = btn.innerHTML;
+    btn.innerHTML = `
+      <svg class="mn-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+      </svg>
+      Saving...
+    `;
+    try {
+      await quickLogCurrentPage();
+    } catch (e) {
+      showToast("Log failed: " + e.message, "error");
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  });
+
+  document.body.appendChild(btn);
+}
+
 // --- Auto-Capture Detection ---
 
-let autoCapturePending = false; // prevent duplicate triggers
+// Dedup by question content, not by URL — NBME swaps iframe content without
+// changing the top-frame URL, so URL-based dedup gets stuck after the first
+// capture. The key combines a slice of the stem + both answers.
+let lastCapturedKey = "";
+let captureInFlight = false;
+
+function questionKey(scraped) {
+  const stem = (scraped.questionStem || "").replace(/\s+/g, " ").trim().slice(0, 120);
+  return `${stem}|${scraped.selectedAnswer}|${scraped.correctAnswer}`;
+}
 
 function getSettings() {
   return new Promise((resolve) => {
@@ -707,7 +812,7 @@ function getSettings() {
 }
 
 async function checkForWrongAnswer() {
-  if (autoCapturePending) return;
+  if (captureInFlight) return;
   if (document.getElementById("mn-modal-overlay")) return; // modal already open
 
   const settings = await getSettings();
@@ -719,7 +824,10 @@ async function checkForWrongAnswer() {
   // Default: only log when picked != correct. With "Log All", log either way.
   if (scraped.wasCorrect === true && !settings.logAll) return;
 
-  autoCapturePending = true;
+  const key = questionKey(scraped);
+  if (!key || key === lastCapturedKey) return;
+  lastCapturedKey = key;
+  captureInFlight = true;
 
   if (settings.silentMode) {
     // Silent mode: save immediately with default reason, no popup
@@ -738,12 +846,15 @@ async function checkForWrongAnswer() {
         was_correct: scraped.wasCorrect ?? null,
       };
       const saved = await saveToSupabase(saveData);
-      showToast("Mistake auto-logged — analyzing...", "info");
+      showToast("Mistake auto-logged — analyzing...", "success");
+      flashCaptureButton();
       if (saved?.[0]?.id) {
         analyzeWithGroq(saved[0].id, saveData);
       }
     } catch (e) {
       showToast("Auto-log failed: " + e.message, "error");
+    } finally {
+      captureInFlight = false;
     }
   } else {
     // Auto-capture: show the modal
@@ -752,20 +863,18 @@ async function checkForWrongAnswer() {
       createModal(scraped, screenshot);
     } catch (e) {
       showToast("Auto-capture failed: " + e.message, "error");
+    } finally {
+      captureInFlight = false;
     }
   }
 }
 
-// Reset pending flag on URL/page change so next question can trigger
-let lastUrl = location.href;
-
 function onPageChange() {
-  if (location.href !== lastUrl) {
-    lastUrl = location.href;
-    autoCapturePending = false;
-  }
   if (!document.getElementById("mn-capture-btn")) {
     injectCaptureButton();
+  }
+  if (!document.getElementById("mn-quick-log-btn")) {
+    injectQuickLogButton();
   }
 }
 
@@ -777,10 +886,14 @@ function onPageChange() {
 const IS_TOP_FRAME = window.top === window;
 
 if (IS_TOP_FRAME) {
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", injectCaptureButton);
-  } else {
+  const injectButtons = () => {
     injectCaptureButton();
+    injectQuickLogButton();
+  };
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", injectButtons);
+  } else {
+    injectButtons();
   }
 
   // Debounced check — wait for DOM to settle after mutations
@@ -794,6 +907,31 @@ if (IS_TOP_FRAME) {
   const observer = new MutationObserver(() => {
     onPageChange();
     debouncedCheck();
+    attachIframeObservers();
   });
   observer.observe(document.body, { childList: true, subtree: true });
+
+  // Polling fallback — NBME swaps iframe bodies in ways that don't reliably
+  // bubble to our MutationObserver. Poll every 2s; dedup by content key
+  // prevents double-captures.
+  setInterval(() => checkForWrongAnswer(), 2000);
+
+  // Also observe same-origin iframe bodies so question changes inside the
+  // exam iframe trigger auto-capture. Iframes load asynchronously, so we
+  // re-scan whenever the top frame mutates.
+  function attachIframeObservers() {
+    document.querySelectorAll("iframe").forEach((frame) => {
+      if (frame.__mnObserved) return;
+      try {
+        const ibody = frame.contentDocument?.body;
+        if (ibody) {
+          observer.observe(ibody, { childList: true, subtree: true });
+          frame.__mnObserved = true;
+        }
+      } catch (e) {
+        /* cross-origin — skip */
+      }
+    });
+  }
+  attachIframeObservers();
 }

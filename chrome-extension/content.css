@@ -1,19 +1,19 @@
-/* Floating capture button */
+/* Floating capture button — bright red so it stands out against NBME UI */
 #mn-capture-btn {
   position: fixed;
   bottom: 24px;
   right: 24px;
-  z-index: 999999;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  z-index: 2147483646;
+  background: linear-gradient(135deg, #ef4444, #dc2626);
   color: white;
-  border: none;
+  border: 2px solid #b91c1c;
   border-radius: 14px;
-  padding: 12px 20px;
-  font-size: 14px;
-  font-weight: 600;
+  padding: 14px 22px;
+  font-size: 15px;
+  font-weight: 700;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   cursor: pointer;
-  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 6px 24px rgba(239, 68, 68, 0.5);
   transition: all 0.2s ease;
   display: flex;
   align-items: center;
@@ -22,7 +22,53 @@
 
 #mn-capture-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 30px rgba(99, 102, 241, 0.5);
+  box-shadow: 0 10px 32px rgba(239, 68, 68, 0.65);
+}
+
+/* Brief flash when an auto-capture completes — extra visual confirmation */
+@keyframes mn-btn-flash {
+  0%   { background: linear-gradient(135deg, #22c55e, #15803d); transform: scale(1.1); }
+  100% { background: linear-gradient(135deg, #ef4444, #dc2626); transform: scale(1); }
+}
+#mn-capture-btn.mn-flash {
+  animation: mn-btn-flash 0.8s ease;
+}
+
+/* Quick-log button — green, no modal, sits to the left of the main button */
+#mn-quick-log-btn {
+  position: fixed;
+  bottom: 24px;
+  right: 180px;
+  z-index: 2147483646;
+  background: linear-gradient(135deg, #22c55e, #15803d);
+  color: white;
+  border: 2px solid #166534;
+  border-radius: 14px;
+  padding: 14px 22px;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  cursor: pointer;
+  box-shadow: 0 6px 24px rgba(34, 197, 94, 0.5);
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#mn-quick-log-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 32px rgba(34, 197, 94, 0.65);
+}
+
+#mn-quick-log-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+#mn-quick-log-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 
 #mn-capture-btn svg {
@@ -30,44 +76,48 @@
   height: 18px;
 }
 
-/* Toast notification */
+/* Toast notification — big, top-center, hard to miss */
 #mn-toast {
   position: fixed;
-  top: 24px;
-  right: 24px;
-  z-index: 9999999;
-  padding: 14px 22px;
-  border-radius: 12px;
-  font-size: 14px;
-  font-weight: 600;
+  top: 60px;
+  left: 50%;
+  transform: translate(-50%, -10px);
+  z-index: 2147483647;
+  padding: 18px 32px;
+  border-radius: 14px;
+  font-size: 18px;
+  font-weight: 700;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-  transition: all 0.3s ease;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.35);
+  transition: all 0.25s ease;
   opacity: 0;
-  transform: translateY(-10px);
+  pointer-events: none;
+  letter-spacing: 0.01em;
+  border-width: 3px;
+  border-style: solid;
 }
 
 #mn-toast.show {
   opacity: 1;
-  transform: translateY(0);
+  transform: translate(-50%, 0);
 }
 
 #mn-toast.success {
-  background: #ecfdf5;
-  color: #065f46;
-  border: 1px solid #86efac;
+  background: #22c55e;
+  color: white;
+  border-color: #15803d;
 }
 
 #mn-toast.error {
-  background: #fef2f2;
-  color: #991b1b;
-  border: 1px solid #fca5a5;
+  background: #ef4444;
+  color: white;
+  border-color: #b91c1c;
 }
 
 #mn-toast.info {
-  background: #eff6ff;
-  color: #1e40af;
-  border: 1px solid #93c5fd;
+  background: #3b82f6;
+  color: white;
+  border-color: #1d4ed8;
 }
 
 /* Modal overlay */
