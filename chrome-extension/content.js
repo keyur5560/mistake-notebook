@@ -28,25 +28,63 @@ function isElementVisible(el) {
 
 // Recursively collect innerText from the main DOM plus any open shadow roots
 // AND visible same-origin iframes.
-function collectAllText(root = document.body) {
-  let text = root.innerText || "";
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
-  let node = walker.nextNode();
-  while (node) {
-    if (node.shadowRoot) {
-      text += "\n" + collectAllText(node.shadowRoot);
+//
+// CRITICAL: our own injected UI (capture-log panel, floating buttons, toast,
+// modal) lives inside document.body, so it'd otherwise leak into the scraped
+// text — and the panel echoes past captures' stem text, which cross-
+// contaminates future scrapes. We hide our elements via visibility:hidden
+// (which innerText respects without triggering layout reflow) while reading.
+const OUR_UI_IDS = [
+  "mn-capture-btn",
+  "mn-quick-log-btn",
+  "mn-capture-log",
+  "mn-toast",
+  "mn-modal-overlay",
+];
+
+function withOurUIHidden(fn) {
+  const restore = [];
+  for (const id of OUR_UI_IDS) {
+    const el = document.getElementById(id);
+    if (el) {
+      restore.push([el, el.style.visibility]);
+      el.style.visibility = "hidden";
     }
-    if (node.tagName === "IFRAME" && isElementVisible(node)) {
-      try {
-        const ibody = node.contentDocument?.body;
-        if (ibody) text += "\n" + collectAllText(ibody);
-      } catch (e) {
-        /* cross-origin — skip */
-      }
-    }
-    node = walker.nextNode();
   }
-  return text;
+  try {
+    return fn();
+  } finally {
+    for (const [el, prev] of restore) {
+      el.style.visibility = prev;
+    }
+  }
+}
+
+function collectAllText(root = document.body) {
+  const isTopBody = root === document.body;
+  // Only the top-frame body needs the UI-hiding wrapper; recursive calls
+  // into iframes/shadow roots can't contain our injected elements.
+  const getText = () => {
+    let text = root.innerText || "";
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+    let node = walker.nextNode();
+    while (node) {
+      if (node.shadowRoot) {
+        text += "\n" + collectAllText(node.shadowRoot);
+      }
+      if (node.tagName === "IFRAME" && isElementVisible(node)) {
+        try {
+          const ibody = node.contentDocument?.body;
+          if (ibody) text += "\n" + collectAllText(ibody);
+        } catch (e) {
+          /* cross-origin — skip */
+        }
+      }
+      node = walker.nextNode();
+    }
+    return text;
+  };
+  return isTopBody ? withOurUIHidden(getText) : getText();
 }
 
 // Find all elements (including inside open shadow roots and visible
@@ -1046,19 +1084,34 @@ async function checkForWrongAnswer() {
   if (captureInFlight) return;
   if (document.getElementById("mn-modal-overlay")) return; // modal already open
 
-  const settings = await getSettings();
-  if (!settings.autoCapture) return;
-
+  // Run synchronous gates BEFORE the first await. Concurrent callers (the
+  // MutationObserver and the 2s polling can fire within ms of each other)
+  // must dedup atomically — otherwise both pass the key check before either
+  // sets lastCapturedKey, and the same question saves twice.
   const scraped = scrapePage();
-  // Need both letters to evaluate
   if (!scraped.selectedAnswer || !scraped.correctAnswer) return;
-  // Default: only log when picked != correct. With "Log All", log either way.
-  if (scraped.wasCorrect === true && !settings.logAll) return;
 
   const key = questionKey(scraped);
   if (!key || key === lastCapturedKey) return;
+
+  // Reserve the slot now. If we end up bailing on the settings check below,
+  // we restore lastCapturedKey so a real capture can still happen later.
+  const prevKey = lastCapturedKey;
   lastCapturedKey = key;
   captureInFlight = true;
+
+  const settings = await getSettings();
+  if (!settings.autoCapture) {
+    lastCapturedKey = prevKey;
+    captureInFlight = false;
+    return;
+  }
+  // Default: only log when picked != correct. With "Log All", log either way.
+  if (scraped.wasCorrect === true && !settings.logAll) {
+    lastCapturedKey = prevKey;
+    captureInFlight = false;
+    return;
+  }
 
   if (settings.silentMode) {
     // Silent mode: save immediately with default reason, no popup

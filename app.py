@@ -96,6 +96,38 @@ def _token_needs_refresh(token: str, skew_seconds: int = 60) -> bool:
         return True
 
 
+def _bulk_analyze(sb, entries):
+    """Run Groq on each entry with progress + rate-limit-friendly pacing."""
+    progress = st.progress(0.0, text=f"Analyzing 0 / {len(entries)}...")
+    status = st.empty()
+    succeeded = 0
+    failed = 0
+    for i, entry in enumerate(entries):
+        title_hint = (entry.get("question_stem") or entry.get("extracted_text") or "")[:50]
+        status.caption(f"#{i+1}/{len(entries)}: {title_hint}…")
+        try:
+            result = analyze_with_groq(
+                entry.get("extracted_text", ""),
+                wrong_answer=entry.get("wrong_answer", ""),
+                why_wrong=entry.get("why_i_got_it_wrong", ""),
+                mistake_type=entry.get("mistake_type", ""),
+            )
+            if result:
+                update_entry(sb, entry["id"], result)
+                succeeded += 1
+            else:
+                failed += 1
+        except Exception as e:
+            failed += 1
+            status.warning(f"#{i+1} failed: {e}")
+        progress.progress((i + 1) / len(entries), text=f"Analyzing {i+1} / {len(entries)}...")
+        # Groq free tier ~30 req/min; ~2.5s pause keeps us under
+        if i < len(entries) - 1:
+            time.sleep(2.5)
+    progress.empty()
+    status.success(f"Done. {succeeded} analyzed, {failed} failed.")
+
+
 def get_sb():
     """Authenticated Supabase client. Auto-refreshes the JWT before it expires
     using the stored refresh_token; if refresh fails the user is logged out."""
@@ -468,6 +500,20 @@ def render_dashboard():
             description="Head to Review from the sidebar to start.",
             icon=True, banner=True, color="warning", size="sm",
         )
+
+    # Bulk Groq analyzer for unanalyzed entries
+    unanalyzed = [e for e in entries if not (e.get("key_learning_point") or "").strip()]
+    if unanalyzed:
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            st.info(
+                f"📋 {len(unanalyzed)} entries haven't been analyzed yet. "
+                f"Run Groq on all of them in one batch."
+            )
+        with c2:
+            if st.button(f"Analyze {len(unanalyzed)} entries", type="primary", use_container_width=True):
+                _bulk_analyze(sb, unanalyzed)
+                st.rerun()
 
     # Stats
     if entries:
