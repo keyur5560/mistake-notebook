@@ -65,13 +65,20 @@ def analyze_with_groq(
     why_wrong: str = "",
     mistake_type: str = "",
     raise_on_error: bool = False,
+    model: str = "llama-3.3-70b-versatile",
+    max_text_chars: int | None = None,
 ) -> dict | None:
     """Send OCR text + student's input to Groq for targeted analysis.
 
     By default exceptions are swallowed and None is returned (preserves
     legacy callers). Pass raise_on_error=True from bulk processors that
     need to distinguish rate-limit errors from soft failures.
+
+    `model` and `max_text_chars` let bulk callers swap to a lighter model
+    and trim input to stay under daily token caps.
     """
+    if max_text_chars and extracted_text and len(extracted_text) > max_text_chars:
+        extracted_text = extracted_text[:max_text_chars]
     api_key = os.environ.get("GROQ_API_KEY", "")
     if not api_key or not extracted_text or len(extracted_text.strip()) < 10:
         return None
@@ -94,7 +101,7 @@ def analyze_with_groq(
     try:
         client = Groq(api_key=api_key)
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=model,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_message},

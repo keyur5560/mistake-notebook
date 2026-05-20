@@ -130,6 +130,12 @@ def _bulk_analyze(sb, entries):
                     why_wrong=entry.get("why_i_got_it_wrong", ""),
                     mistake_type=entry.get("mistake_type", ""),
                     raise_on_error=True,
+                    # Lighter model with much higher daily caps; truncate
+                    # extracted text so per-request tokens stay low (the
+                    # question stem + answers are usually in the first
+                    # ~1500 chars).
+                    model="llama-3.1-8b-instant",
+                    max_text_chars=1500,
                 )
                 break  # success or soft None — stop retrying
             except Exception as e:
