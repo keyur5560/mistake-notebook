@@ -297,6 +297,18 @@
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
 }
 
+#mn-modal label.mn-disabled {
+  opacity: 0.4;
+}
+
+#mn-modal textarea:disabled,
+#mn-modal select:disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+  cursor: not-allowed;
+  border-color: #e2e8f0;
+}
+
 #mn-modal .mn-btn-row {
   display: flex;
   gap: 10px;

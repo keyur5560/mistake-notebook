@@ -8,10 +8,26 @@ function detectSource() {
   return "unknown";
 }
 
+// Is an iframe (or any element) actually visible? NBME preloads all 50
+// question iframes in the DOM and hides inactive ones; without this check
+// the scraper would aggregate every question's content into one blob.
+function isElementVisible(el) {
+  if (!el || !el.getBoundingClientRect) return true;
+  try {
+    const style = window.getComputedStyle(el);
+    if (style.display === "none") return false;
+    if (style.visibility === "hidden") return false;
+    if (parseFloat(style.opacity || "1") === 0) return false;
+    const r = el.getBoundingClientRect();
+    if (r.width < 5 || r.height < 5) return false;
+    return true;
+  } catch (e) {
+    return true;
+  }
+}
+
 // Recursively collect innerText from the main DOM plus any open shadow roots
-// AND same-origin iframes. NBME's starttest.com loads each section (question,
-// labs, footer, etc.) into its own same-origin iframe — the top frame's body
-// only has nav chrome.
+// AND visible same-origin iframes.
 function collectAllText(root = document.body) {
   let text = root.innerText || "";
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
@@ -20,7 +36,7 @@ function collectAllText(root = document.body) {
     if (node.shadowRoot) {
       text += "\n" + collectAllText(node.shadowRoot);
     }
-    if (node.tagName === "IFRAME") {
+    if (node.tagName === "IFRAME" && isElementVisible(node)) {
       try {
         const ibody = node.contentDocument?.body;
         if (ibody) text += "\n" + collectAllText(ibody);
@@ -33,8 +49,8 @@ function collectAllText(root = document.body) {
   return text;
 }
 
-// Find all elements (including inside open shadow roots and same-origin
-// iframes) matching a selector.
+// Find all elements (including inside open shadow roots and visible
+// same-origin iframes) matching a selector.
 function queryAllDeep(selector, root = document) {
   const results = Array.from(root.querySelectorAll?.(selector) || []);
   const base = root.body || root.documentElement || root;
@@ -45,7 +61,7 @@ function queryAllDeep(selector, root = document) {
     if (node.shadowRoot) {
       results.push(...queryAllDeep(selector, node.shadowRoot));
     }
-    if (node.tagName === "IFRAME") {
+    if (node.tagName === "IFRAME" && isElementVisible(node)) {
       try {
         const idoc = node.contentDocument;
         if (idoc) results.push(...queryAllDeep(selector, idoc));
@@ -115,6 +131,12 @@ function captureSummary(scraped, n = 60) {
     return e.length > n ? e.slice(0, n) + "…" : e;
   }
   return "(no preview)";
+}
+
+function correctnessLabel(wasCorrect) {
+  if (wasCorrect === true) return "✓ Correct";
+  if (wasCorrect === false) return "✗ Wrong";
+  return "? Unknown";
 }
 
 function recordCapture(scraped) {
@@ -227,12 +249,23 @@ function scrapePage() {
   const yourAnsMatch = body.match(/Your\s+(?:Answer|Response)\s*[:\-]\s*([A-Z])(?:[.\s)]|$)/i);
   if (yourAnsMatch) result.selectedAnswer = yourAnsMatch[1].toUpperCase();
 
-  // 0b. Selected-answer fallback: NBME shows the user's pick as a filled radio
-  //     button with no surrounding label text. Try real <input>s first, then
-  //     ARIA-checked custom widgets.
+  // 0b. Selected-answer detection.
+  //     NBME's read-only review uses real <input type=radio> elements but
+  //     keeps the choice letter/text in *sibling* nodes, not nested under
+  //     the input — so matching the container text for "[A-Z]." fails.
+  //     The N-th radio in DOM order corresponds to the N-th choice
+  //     (A, B, C, ...), so use the checked radio's index instead.
+  if (!result.selectedAnswer) {
+    const radios = queryAllDeep('input[type="radio"]');
+    const checkedIdx = radios.findIndex((r) => r.checked);
+    if (checkedIdx >= 0 && checkedIdx < 26) {
+      result.selectedAnswer = String.fromCharCode("A".charCodeAt(0) + checkedIdx);
+    }
+  }
+
+  // 0c. ARIA fallback for custom radio widgets (some UWorld-like UIs).
   if (!result.selectedAnswer) {
     const candidates = [
-      ...queryAllDeep('input[type="radio"]:checked'),
       ...queryAllDeep('[role="radio"][aria-checked="true"]'),
       ...queryAllDeep('[aria-checked="true"]'),
     ];
@@ -496,11 +529,23 @@ function createModal(scraped, screenshotDataUrl) {
        </div>`
     : "";
 
+  // When she got it right, "Why I got it wrong" + "Type of mistake" don't
+  // apply — disable them but leave them in the DOM so the save handler can
+  // still read empty values without branching.
+  const wasCorrect = scraped.wasCorrect === true;
+  const title = wasCorrect ? "Log Question to Notebook" : "Log Mistake to Notebook";
+  const saveLabel = wasCorrect ? "Save Entry" : "Save & Analyze";
+  const whyPlaceholder = wasCorrect
+    ? "Not applicable — you got this one right"
+    : "What tripped you up?";
+  const disabledAttr = wasCorrect ? "disabled" : "";
+  const disabledClass = wasCorrect ? "mn-disabled" : "";
+
   const overlay = document.createElement("div");
   overlay.id = "mn-modal-overlay";
   overlay.innerHTML = `
     <div id="mn-modal">
-      <h2>Log Mistake to Notebook</h2>
+      <h2>${title}</h2>
 
       ${warningHtml}
 
@@ -509,17 +554,17 @@ function createModal(scraped, screenshotDataUrl) {
         ${previewHtml}
       </div>
 
-      <label>Why I Got It Wrong</label>
-      <textarea id="mn-why" rows="3" placeholder="What tripped you up?"></textarea>
+      <label class="${disabledClass}">Why I Got It Wrong</label>
+      <textarea id="mn-why" rows="3" placeholder="${whyPlaceholder}" ${disabledAttr}></textarea>
 
-      <label>Type of Mistake</label>
-      <select id="mn-type">
+      <label class="${disabledClass}">Type of Mistake</label>
+      <select id="mn-type" ${disabledAttr}>
         ${MISTAKE_TYPES.map((t) => `<option value="${t}">${t}</option>`).join("")}
       </select>
 
       <div class="mn-btn-row">
         <button class="mn-btn mn-btn-secondary" id="mn-cancel">Cancel</button>
-        <button class="mn-btn mn-btn-primary" id="mn-save">Save & Analyze</button>
+        <button class="mn-btn mn-btn-primary" id="mn-save">${saveLabel}</button>
       </div>
     </div>
   `;
@@ -542,8 +587,10 @@ function createModal(scraped, screenshotDataUrl) {
 
   // Save
   document.getElementById("mn-save").addEventListener("click", async () => {
-    const whyWrong = document.getElementById("mn-why").value;
-    const mistakeType = document.getElementById("mn-type").value;
+    const whyWrong = wasCorrect ? "" : document.getElementById("mn-why").value;
+    const mistakeType = wasCorrect
+      ? "Other"
+      : document.getElementById("mn-type").value;
     const saveBtn = document.getElementById("mn-save");
 
     saveBtn.disabled = true;
@@ -567,7 +614,10 @@ function createModal(scraped, screenshotDataUrl) {
       overlay.classList.remove("show");
       setTimeout(() => overlay.remove(), 300);
       recordCapture(scraped);
-      showToast(`Saved: ${captureSummary(scraped, 60)}`, "success");
+      showToast(
+        `Saved ${correctnessLabel(scraped.wasCorrect)} — ${captureSummary(scraped, 50)}`,
+        scraped.wasCorrect === false ? "error" : "success"
+      );
 
       // Run Groq analysis in background
       if (saved?.[0]?.id) {
@@ -575,7 +625,7 @@ function createModal(scraped, screenshotDataUrl) {
       }
     } catch (err) {
       saveBtn.disabled = false;
-      saveBtn.textContent = "Save & Analyze";
+      saveBtn.textContent = saveLabel;
       showToast("Save failed: " + err.message, "error");
     }
   });
@@ -929,7 +979,10 @@ async function quickLogCurrentPage() {
 
   const saved = await saveToSupabase(saveData);
   recordCapture(scraped);
-  showToast(`Logged: ${captureSummary(scraped, 60)}`, "success");
+  showToast(
+    `Logged ${correctnessLabel(scraped.wasCorrect)} — ${captureSummary(scraped, 50)}`,
+    scraped.wasCorrect === false ? "error" : "success"
+  );
   flashCaptureButton();
   if (saved?.[0]?.id) {
     analyzeWithGroq(saved[0].id, saveData);
@@ -1025,7 +1078,10 @@ async function checkForWrongAnswer() {
       };
       const saved = await saveToSupabase(saveData);
       recordCapture(scraped);
-      showToast(`Auto-logged: ${captureSummary(scraped, 60)}`, "success");
+      showToast(
+        `Auto-logged ${correctnessLabel(scraped.wasCorrect)} — ${captureSummary(scraped, 50)}`,
+        scraped.wasCorrect === false ? "error" : "success"
+      );
       flashCaptureButton();
       if (saved?.[0]?.id) {
         analyzeWithGroq(saved[0].id, saveData);
