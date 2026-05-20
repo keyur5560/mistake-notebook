@@ -97,35 +97,69 @@ def _token_needs_refresh(token: str, skew_seconds: int = 60) -> bool:
 
 
 def _bulk_analyze(sb, entries):
-    """Run Groq on each entry with progress + rate-limit-friendly pacing."""
+    """Run Groq on each entry with progress + rate-limit-aware pacing.
+
+    Groq's free tier caps tokens-per-minute, not just requests. Each call
+    uses ~2k tokens (system prompt + extracted text + JSON response), so a
+    naive fast loop blows past the TPM and ~90% of calls 429 silently.
+    Strategy: pace ~8s base, detect rate-limit errors, sleep 60s and
+    retry once before giving up.
+    """
     progress = st.progress(0.0, text=f"Analyzing 0 / {len(entries)}...")
     status = st.empty()
+    detail = st.empty()
     succeeded = 0
     failed = 0
+    rate_limited = 0
+
+    def _is_rate_limit(err):
+        msg = str(err).lower()
+        return "rate" in msg or "429" in msg or "tpm" in msg or "tokens per minute" in msg
+
     for i, entry in enumerate(entries):
-        title_hint = (entry.get("question_stem") or entry.get("extracted_text") or "")[:50]
+        title_hint = (entry.get("question_stem") or entry.get("extracted_text") or "")[:60]
         status.caption(f"#{i+1}/{len(entries)}: {title_hint}…")
-        try:
-            result = analyze_with_groq(
-                entry.get("extracted_text", ""),
-                wrong_answer=entry.get("wrong_answer", ""),
-                why_wrong=entry.get("why_i_got_it_wrong", ""),
-                mistake_type=entry.get("mistake_type", ""),
-            )
-            if result:
-                update_entry(sb, entry["id"], result)
-                succeeded += 1
-            else:
-                failed += 1
-        except Exception as e:
+
+        result = None
+        last_err = None
+        for attempt in range(2):  # original + one retry
+            try:
+                result = analyze_with_groq(
+                    entry.get("extracted_text", ""),
+                    wrong_answer=entry.get("wrong_answer", ""),
+                    why_wrong=entry.get("why_i_got_it_wrong", ""),
+                    mistake_type=entry.get("mistake_type", ""),
+                    raise_on_error=True,
+                )
+                break  # success or soft None — stop retrying
+            except Exception as e:
+                last_err = e
+                if _is_rate_limit(e) and attempt == 0:
+                    rate_limited += 1
+                    detail.warning(f"Rate-limited at #{i+1}; pausing 60s before retry…")
+                    time.sleep(60)
+                    detail.empty()
+                    continue  # retry
+                break
+
+        if result:
+            update_entry(sb, entry["id"], result)
+            succeeded += 1
+        else:
             failed += 1
-            status.warning(f"#{i+1} failed: {e}")
+            if last_err:
+                detail.warning(f"#{i+1} failed: {last_err}")
+
         progress.progress((i + 1) / len(entries), text=f"Analyzing {i+1} / {len(entries)}...")
-        # Groq free tier ~30 req/min; ~2.5s pause keeps us under
+        # Sustainable pacing under free-tier TPM. Slow but reliable.
         if i < len(entries) - 1:
-            time.sleep(2.5)
+            time.sleep(8)
+
     progress.empty()
-    status.success(f"Done. {succeeded} analyzed, {failed} failed.")
+    detail.empty()
+    status.success(
+        f"Done. {succeeded} analyzed, {failed} failed, {rate_limited} rate-limit retries."
+    )
 
 
 def get_sb():

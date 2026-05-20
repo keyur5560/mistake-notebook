@@ -64,8 +64,14 @@ def analyze_with_groq(
     wrong_answer: str = "",
     why_wrong: str = "",
     mistake_type: str = "",
+    raise_on_error: bool = False,
 ) -> dict | None:
-    """Send OCR text + student's input to Groq for targeted analysis."""
+    """Send OCR text + student's input to Groq for targeted analysis.
+
+    By default exceptions are swallowed and None is returned (preserves
+    legacy callers). Pass raise_on_error=True from bulk processors that
+    need to distinguish rate-limit errors from soft failures.
+    """
     api_key = os.environ.get("GROQ_API_KEY", "")
     if not api_key or not extracted_text or len(extracted_text.strip()) < 10:
         return None
@@ -105,6 +111,8 @@ def analyze_with_groq(
             return json.loads(json_match.group())
         return json.loads(content)
     except Exception as e:
+        if raise_on_error:
+            raise
         print(f"Groq analysis error: {e}")
         return None
 
